@@ -1,0 +1,19 @@
+{
+  "name": "heapview",
+  "version": "1.0.0",
+  "description": "Heap Dump Viewer",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .js,.ts,.md || true",
+    "format": "prettier --write . || true"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.0.0",
+    "vite": "^5.0.0"
+  }
+}
