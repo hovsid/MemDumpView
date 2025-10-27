@@ -1,13 +1,13 @@
-# Modular Heap Dump Viewer — Usage & Development Guide
+# Heap Dump Viewer — Usage & Development Guide
 
-Quick links
+## Quick links
 
 - Where the app entry lives: /js/main.js
 - Utility modules: /js/utils.js, /js/parser.js, /js/downsample.js, /js/plot.js
 
 ---
 
-User manual — how to run and use the app (modular setup)
+## User manual — how to run and use the app
 
 1. Serve the files
 
@@ -39,7 +39,7 @@ User manual — how to run and use the app (modular setup)
 
 ---
 
-Module map — what each file does
+## Module map — what each file does
 
 - /js/main.js
   - App entry and orchestrator. Manages shared application state, wires DOM events, composes UI pieces, and calls the other modules.
@@ -85,7 +85,7 @@ Module map — what each file does
 
 ---
 
-State design (single source of truth)
+## State design (single source of truth)
 
 - main.js keeps a central state object that other modules receive as an argument when needed.
 - Key fields:
@@ -102,9 +102,9 @@ State design (single source of truth)
 
 ---
 
-Development guide — how to change and extend modules
+## Development guide — how to change and extend modules
 
-Design rules
+### Design rules
 
 - Separation of concerns:
   - Parsing: parser.js only parses text → data structures.
@@ -118,7 +118,7 @@ Design rules
   import _ as U from './utils.js';
   import _ as Plot from './plot.js';
 
-Common tasks & where to change
+### Common tasks & where to change
 
 - Change parsing rules
   - Edit /js/parser.js (add new regexes or support for additional block formats).
@@ -136,7 +136,7 @@ Common tasks & where to change
 - Split main.js further
   - If main.js grows, split UI composition into smaller modules (ui.js, gcView.js) and import them from main.js. Keep state ownership in main.js or pass a controlled API for state changes.
 
-Example small change workflow
+### Example small change workflow
 
 1. Identify the module (e.g., parser.js) and open it.
 2. Add the function or modify the logic (preserve public function signatures where possible).
@@ -146,7 +146,7 @@ Example small change workflow
 
 ---
 
-Testing and debugging
+## Testing and debugging
 
 - Browser DevTools:
   - Use console.log liberally in main.js and the module you're working on.
@@ -167,7 +167,7 @@ Testing and debugging
 
 ---
 
-Coding conventions & best practices
+## Coding conventions & best practices
 
 - Prefer named exports for utilities and helpers (makes testing easier).
 - Avoid direct DOM manipulation inside parser.js and downsample.js.
@@ -177,7 +177,7 @@ Coding conventions & best practices
 
 ---
 
-Adding new modules
+## Adding new modules
 
 - Create a new file under /js/, export the functions you need, and import them from main.js or other modules.
 - Ensure the module does not leak globals. Use the central state object when reading application data.
@@ -185,7 +185,7 @@ Adding new modules
 
 ---
 
-Performance tips
+## Performance tips
 
 - For very large heap timelines, prefer downsampling before plotting.
 - Keep data structures as typed arrays only if needed for performance-critical operations; otherwise plain arrays are fine.
@@ -193,7 +193,7 @@ Performance tips
 
 ---
 
-Helpers & utilities to create (recommended)
+## Helpers & utilities to create (recommended)
 
 - tests/parser.test.js — tests for parseGCDumpBlocks, parsePageDistribution, parsePageUsages.
 - tests/downsample.test.js — tests for downsampleBucket and downsampleLTTB (validate marker preservation).
@@ -201,7 +201,7 @@ Helpers & utilities to create (recommended)
 
 ---
 
-Contact & contribution notes
+## Contact & contribution notes
 
 - When contributing, keep PRs small and include manual verification steps.
 - If you refactor behaviorally sensitive code (parsing or plotting), add regression tests or sample files used to validate the change.
