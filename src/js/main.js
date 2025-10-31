@@ -1,79 +1,33 @@
-/* main.js
-   This file contains the original page's JavaScript moved into a module file.
-   The content/logic was preserved exactly but is now in ES module scope to
-   make it easier to evolve into multiple modules later.
-*/
+// main.js - orchestrates the UI, state and connects modules
+// Entry module loaded by index page.
 
-/* ===== Utility ===== */
-function escapeHtml(text) {
-  return String(text).replace(
-    /[<>&"'`]/g,
-    (c) =>
-      ({
-        "<": "&lt;",
-        ">": "&gt;",
-        "&": "&amp;",
-        '"': "&quot;",
-        "'": "&#39;",
-        "`": "&#96;",
-      })[c],
-  );
-}
-function makeMovable(popup, header) {
-  let offsetX = 0,
-    offsetY = 0,
-    isDown = false;
-  header =
-    header || popup.querySelector(".bar-popup-header,.info-popup-header");
-  if (!header) return;
-  header.onmousedown = (e) => {
-    isDown = true;
-    offsetX = e.clientX - popup.offsetLeft;
-    offsetY = e.clientY - popup.offsetTop;
-    document.body.style.userSelect = "none";
-  };
-  document.addEventListener("mousemove", (e) => {
-    if (!isDown) return;
-    popup.style.left = e.clientX - offsetX + "px";
-    popup.style.top = e.clientY - offsetY + "px";
-  });
-  document.addEventListener("mouseup", () => {
-    isDown = false;
-    document.body.style.userSelect = "";
-  });
-}
-function formatBytes(bytes) {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const v = bytes / Math.pow(1024, i);
-  return (
-    (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) +
-    " " +
-    units[i]
-  );
-}
+import * as U from "./utils.js";
+import * as P from "./parser.js";
+import * as DS from "./downsample.js";
+import * as Plot from "./plot.js";
 
 /* ===== State ===== */
-let gcPairs = [];
-let heapValuesOriginal = [];
-let heapGcMarkers = [];
-let heapGcMarkerValues = [];
-let heapGcMarkerRawValues = [];
-let heapMarkerOffset = 0;
-let plotRendered = false;
+export const state = {
+  gcPairs: [],
+  heapValuesOriginal: [],
+  heapGcMarkers: [],
+  heapGcMarkerValues: [],
+  heapGcMarkerRawValues: [],
+  heapMarkerOffset: 0,
+  plotRendered: false,
 
-let dsCurrentX = [];
-let dsCurrentY = [];
-let dsActive = true;
-let lastAlgo = "bucket";
-let lastTarget = 3000;
+  dsCurrentX: [],
+  dsCurrentY: [],
+  dsActive: true,
+  lastAlgo: "bucket",
+  lastTarget: 3000,
 
-let simulatedCompactedX = [];
-let simulatedCompactedY = [];
-let haveSimulation = false;
+  simulatedCompactedX: [],
+  simulatedCompactedY: [],
+  haveSimulation: false,
+};
 
-/* ===== Parsing Merged File ===== */
+/* ===== Parsing Merged File (uses parser helpers) ===== */
 function parseMergedFile(content) {
   const lines = content.split(/\r?\n/);
   const phase1Idx = lines.findIndex((l) =>
@@ -100,164 +54,20 @@ function parseMergedFile(content) {
 
   // Parse GC dump portion (reuse existing pipeline)
   const gcDumpText = gcDumpLines.join("\n");
-  const blocks = parseGCDumpBlocks(gcDumpText);
-  gcPairs = pairBlocks(blocks);
+  const blocks = P.parseGCDumpBlocks(gcDumpText);
+  state.gcPairs = P.pairBlocks(blocks);
   renderGCPairs();
 
-  statusEl.innerHTML = `<span style='color:#2e7d32'>Loaded heap samples: ${heapValuesOriginal.length}, GC pairs: ${gcPairs.length}</span>`;
-}
-
-/* ===== Old GC Dump Helpers (unchanged) ===== */
-function parseGCDumpBlocks(text) {
-  const lines = text.split(/\r?\n/);
-  let blocks = [],
-    current = null;
-  for (const line of lines) {
-    const header = line.match(/-+(before|after) GC (\d+) -+/);
-    if (header) {
-      if (current) blocks.push(current);
-      current = { type: header[1], idx: parseInt(header[2]), content: [] };
-    } else if (current && line.trim().length) {
-      current.content.push(line);
-    }
-  }
-  if (current) blocks.push(current);
-  return blocks;
-}
-function pairBlocks(blocks) {
-  let pairs = [];
-  let i = 0;
-  while (i < blocks.length) {
-    if (
-      blocks[i].type === "before" &&
-      blocks[i + 1] &&
-      blocks[i + 1].type === "after" &&
-      blocks[i].idx === blocks[i + 1].idx
-    ) {
-      pairs.push({
-        idx: blocks[i].idx,
-        before: blocks[i],
-        after: blocks[i + 1],
-      });
-      i += 2;
-    } else i++;
-  }
-  return pairs;
-}
-function parsePageDistribution(contentLines) {
-  let dist = {};
-  for (const line of contentLines) {
-    let fb = line.match(/^(\d+):\s*(.*)$/);
-    let pf = line.match(/^([a-zA-Z_]+):\s*(.*)$/);
-    if (fb) {
-      dist[`FixedBlockPage_${fb[1]}`] = parsePageUsages(
-        fb[2],
-        "FixedBlockPage",
-        fb[1],
-      );
-    } else if (pf) {
-      let name = pf[1];
-      let kind = "Other";
-      if (name === "nextFitPages") kind = "NextFitPage";
-      else if (name === "singleObjectPages") kind = "SingleObjectPage";
-      else if (name === "extraObjectPages") kind = "ExtraObjectPage";
-      dist[name] = parsePageUsages(pf[2], kind, name);
-    }
-  }
-  return dist;
-}
-function parsePageUsages(data, kind, name) {
-  const re = /\((\d+)%\)|\+|\-/g;
-  let m;
-  let out = [];
-  while ((m = re.exec(data))) {
-    if (m[1] !== undefined)
-      out.push({ type: "partial", value: parseInt(m[1]), kind, name });
-    else if (m[0] === "+") out.push({ type: "full", value: 100, kind, name });
-    else if (m[0] === "-") out.push({ type: "empty", value: 0, kind, name });
-  }
-  return out;
-}
-function kindOrder(k) {
-  if (k.startsWith("FixedBlockPage_")) return 1 + parseInt(k.split("_")[1]);
-  if (k === "nextFitPages") return 100000;
-  if (k === "singleObjectPages") return 200000;
-  if (k === "extraObjectPages") return 300000;
-  return 9999999;
-}
-function countTotalPages(dist) {
-  let t = 0;
-  for (const k in dist) t += dist[k].length;
-  return t;
-}
-function computeSummary(bef, aft) {
-  function agg(d) {
-    let pages = 0,
-      sum = 0;
-    for (const k in d) {
-      for (const u of d[k]) {
-        pages++;
-        sum += u.value;
-      }
-    }
-    return { pages, mean: pages ? sum / pages : 0 };
-  }
-  const b = agg(bef),
-    a = agg(aft);
-  let released = 0;
-  const keys = new Set([...Object.keys(bef), ...Object.keys(aft)]);
-  for (const k of keys) {
-    const bc = bef[k] ? bef[k].length : 0;
-    const ac = aft[k] ? aft[k].length : 0;
-    if (ac < bc) released += bc - ac;
-  }
-  return {
-    pagesBefore: b.pages,
-    pagesAfter: a.pages,
-    pagesReleased: released,
-    occupancyBefore: b.mean,
-    occupancyAfter: a.mean,
-    deltaOccupancy: a.mean - b.mean,
-  };
-}
-function getMemStatForGcIdx(gcIdx) {
-  const sorted = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
-  const pos = sorted.indexOf(gcIdx);
-  if (pos === -1 || pos >= heapGcMarkerRawValues.length) return null;
-  return heapGcMarkerRawValues[pos];
-}
-function simulateCompaction(dist) {
-  let totalPercent = 0;
-  for (const k in dist) {
-    for (const u of dist[k]) totalPercent += u.value;
-  }
-  if (totalPercent === 0) return { Compacted: [] };
-  const fullPages = Math.floor(totalPercent / 100);
-  const remainder = totalPercent - fullPages * 100;
-  let arr = [];
-  for (let i = 0; i < fullPages; i++)
-    arr.push({
-      type: "full",
-      value: 100,
-      kind: "CompactedPage",
-      name: "compact",
-    });
-  if (remainder > 0)
-    arr.push({
-      type: "partial",
-      value: Math.round(remainder * 100) / 100,
-      kind: "CompactedPage",
-      name: "compact",
-    });
-  return { Compacted: arr };
+  statusEl.innerHTML = `<span style='color:#2e7d32'>Loaded heap samples: ${state.heapValuesOriginal.length}, GC pairs: ${state.gcPairs.length}</span>`;
 }
 
 /* ===== Parse Heap Timeline (from lines list) ===== */
 function parseHeapTimelineFromLines(lines) {
-  heapValuesOriginal = [];
-  heapGcMarkers = [];
-  heapGcMarkerValues = [];
-  heapGcMarkerRawValues = [];
+  state.heapValuesOriginal = [];
+  state.heapGcMarkers = [];
+  state.heapGcMarkerValues = [];
+  state.heapGcMarkerRawValues = [];
+
   let min = Infinity,
     max = -Infinity;
   for (const line of lines) {
@@ -268,63 +78,111 @@ function parseHeapTimelineFromLines(lines) {
     min = Math.min(min, v);
     max = Math.max(max, v);
   }
-  heapMarkerOffset = (max - min) * 0.0001;
+  state.heapMarkerOffset = (max - min) * 0.0001;
+
   for (let i = 0; i < lines.length; i++) {
     const parts = lines[i].split(",");
     if (parts.length !== 2) continue;
     const v = parseFloat(parts[0]);
     const status = parts[1].trim().toLowerCase();
     if (isNaN(v)) continue;
-    heapValuesOriginal.push(v);
+    state.heapValuesOriginal.push(v);
     if (status === "true") {
-      heapGcMarkers.push(i + 1);
-      heapGcMarkerRawValues.push(v);
-      heapGcMarkerValues.push(v + heapMarkerOffset);
+      state.heapGcMarkers.push(i + 1);
+      state.heapGcMarkerRawValues.push(v);
+      state.heapGcMarkerValues.push(v + state.heapMarkerOffset);
     }
   }
-  applyDownsampling(lastAlgo, lastTarget);
-  renderHeapPlot();
+
+  // apply default downsampling using local DS functions
+  applyDownsampling(state.lastAlgo, state.lastTarget);
+  Plot.renderHeapPlot(state);
   buildCorrelationPanel();
 }
 
-/* ===== GC Pairs Rendering + Simulation ===== */
+/* ===== Downsampling orchestration (main keeps ds state) ===== */
+function applyDownsampling(algo, target) {
+  state.lastAlgo = algo;
+  state.lastTarget = target;
+  const n = state.heapValuesOriginal.length;
+  const xArr = Array.from({ length: n }, (_, i) => i + 1);
+  const forceSet = new Set(state.heapGcMarkers);
+  let result =
+    algo === "lttb"
+      ? DS.downsampleLTTB(xArr, state.heapValuesOriginal, target, forceSet)
+      : DS.downsampleBucket(xArr, state.heapValuesOriginal, target, forceSet);
+  state.dsCurrentX = result.x;
+  state.dsCurrentY = result.y;
+  state.dsActive = true;
+  updateDsInfo();
+  Plot.renderHeapPlot(state);
+}
+
+function revertToOriginal() {
+  state.dsActive = false;
+  updateDsInfo();
+  Plot.renderHeapPlot(state);
+}
+
+function updateDsInfo() {
+  const badge = document.getElementById("ds-info");
+  if (!badge) return;
+  if (state.heapValuesOriginal.length === 0) {
+    badge.textContent = "No data";
+    return;
+  }
+  if (!state.dsActive) {
+    badge.textContent = `Original: ${state.heapValuesOriginal.length} pts`;
+    badge.style.background = "#555";
+  } else {
+    badge.textContent = `Downsampled: ${state.dsCurrentX.length}/${state.heapValuesOriginal.length} pts`;
+    badge.style.background = "#1976d2";
+  }
+}
+
+/* ===== UI rendering: GC pairs, grids and popups
+   For now these functions largely mirror the original implementation but use
+   the parser helpers in parser.js and utilities in utils.js.
+*/
 function renderGCPairs() {
   const container = document.getElementById("page-dump-view");
   container.innerHTML = "";
-  simulatedCompactedX = [];
-  simulatedCompactedY = [];
-  haveSimulation = false;
+  state.simulatedCompactedX = [];
+  state.simulatedCompactedY = [];
+  state.haveSimulation = false;
 
-  if (gcPairs.length === 0) {
+  if (state.gcPairs.length === 0) {
     container.innerHTML =
       "<div style='color:#555'>No GC before/after pairs found.</div>";
     buildCorrelationPanel();
-    updateSimulatedLine();
+    Plot.updateSimulatedLine(state);
     return;
   }
 
-  const sortedPairIndices = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
+  const sortedPairIndices = state.gcPairs
+    .map((p) => p.idx)
+    .sort((a, b) => a - b);
   let simMap = new Map();
 
-  for (const pair of gcPairs) {
-    const beforeDist = parsePageDistribution(pair.before.content);
-    const afterDist = parsePageDistribution(pair.after.content);
-    const optimizedBefore = simulateCompaction(beforeDist);
-    const optimizedAfter = simulateCompaction(afterDist);
+  for (const pair of state.gcPairs) {
+    const beforeDist = P.parsePageDistribution(pair.before.content);
+    const afterDist = P.parsePageDistribution(pair.after.content);
+    const optimizedBefore = P.simulateCompaction(beforeDist);
+    const optimizedAfter = P.simulateCompaction(afterDist);
 
     let allKeys = [
       ...new Set([...Object.keys(beforeDist), ...Object.keys(afterDist)]),
     ];
-    allKeys.sort((a, b) => kindOrder(a) - kindOrder(b));
+    allKeys.sort((a, b) => P.kindOrder(a) - P.kindOrder(b));
     const optKeys = ["Compacted"];
 
     const unifiedSize = Math.ceil(
       Math.sqrt(
         Math.max(
-          countTotalPages(beforeDist),
-          countTotalPages(afterDist),
-          countTotalPages(optimizedBefore),
-          countTotalPages(optimizedAfter),
+          P.countTotalPages(beforeDist),
+          P.countTotalPages(afterDist),
+          P.countTotalPages(optimizedBefore),
+          P.countTotalPages(optimizedAfter),
         ),
       ),
     );
@@ -332,7 +190,7 @@ function renderGCPairs() {
     const wrapper = document.createElement("div");
     wrapper.className = "gc-pair-wrapper";
 
-    const summary = computeSummary(beforeDist, afterDist);
+    const summary = P.computeSummary(beforeDist, afterDist);
     const deltaClass =
       summary.deltaOccupancy > 0
         ? "delta-pos"
@@ -348,10 +206,10 @@ function renderGCPairs() {
       simulatedValue = memStatValue * occupancyFactor;
       const memReductionAmount = memStatValue - simulatedValue;
       memEstimateHtml = `
-               <div>Overall occupancy after GC: <b>${summary.occupancyAfter.toFixed(2)}%</b></div>
-               <div>Simulated compacted bytes: <b>${formatBytes(simulatedValue)}</b> (base: ${formatBytes(memStatValue)})</div>
-               <div>Estimated memory reduction if perfectly compacted: <span class="${memReductionAmount > 0 ? "mem-estimate" : "mem-nochange"}">-${formatBytes(memReductionAmount)}</span></div>
-            `;
+         <div>Overall occupancy after GC: <b>${summary.occupancyAfter.toFixed(2)}%</b></div>
+         <div>Simulated compacted bytes: <b>${U.formatBytes(simulatedValue)}</b> (base: ${U.formatBytes(memStatValue)})</div>
+         <div>Estimated memory reduction if perfectly compacted: <span class="${memReductionAmount > 0 ? "mem-estimate" : "mem-nochange"}">-${U.formatBytes(memReductionAmount)}</span></div>
+      `;
     } else {
       memEstimateHtml = `<div>Simulated compacted bytes: <span class="mem-nochange">N/A (no heap marker)</span></div>`;
     }
@@ -360,24 +218,24 @@ function renderGCPairs() {
     const summaryPanel = document.createElement("div");
     summaryPanel.className = "gc-summary-panel";
     summaryPanel.innerHTML = `
-          <div class="gc-summary-header-row">
-            <div class="gc-summary-title">Conclusion GC ${pair.idx}</div>
-            <div class="layout-tools">
-              <button class="gc-btn charts-btn">Charts</button>
-              <button class="gc-btn highlight-btn">Highlight</button>
-              <button class="gc-btn zoom-in-btn">Zoom +</button>
-              <button class="gc-btn zoom-out-btn">Zoom -</button>
-              <button class="gc-btn zoom-reset-btn">Reset</button>
-            </div>
-          </div>
-          <div>Pages before: <b>${summary.pagesBefore}</b></div>
-          <div>Pages after: <b>${summary.pagesAfter}</b></div>
-          <div>Pages released: <span class="released">${summary.pagesReleased}</span></div>
-          <div>Overall occupancy before: <b>${summary.occupancyBefore.toFixed(2)}%</b></div>
-          <div>Overall occupancy after: <b>${summary.occupancyAfter.toFixed(2)}%</b></div>
-          <div>Occupancy change: <span class="${deltaClass}">${summary.deltaOccupancy > 0 ? "+" : ""}${summary.deltaOccupancy.toFixed(2)} pp</span></div>
-          ${memEstimateHtml}
-        `;
+      <div class="gc-summary-header-row">
+        <div class="gc-summary-title">Conclusion GC ${pair.idx}</div>
+        <div class="layout-tools">
+          <button class="gc-btn charts-btn">Charts</button>
+          <button class="gc-btn highlight-btn">Highlight</button>
+          <button class="gc-btn zoom-in-btn">Zoom +</button>
+          <button class="gc-btn zoom-out-btn">Zoom -</button>
+          <button class="gc-btn zoom-reset-btn">Reset</button>
+        </div>
+      </div>
+      <div>Pages before: <b>${summary.pagesBefore}</b></div>
+      <div>Pages after: <b>${summary.pagesAfter}</b></div>
+      <div>Pages released: <span class="released">${summary.pagesReleased}</span></div>
+      <div>Overall occupancy before: <b>${summary.occupancyBefore.toFixed(2)}%</b></div>
+      <div>Overall occupancy after: <b>${summary.occupancyAfter.toFixed(2)}%</b></div>
+      <div>Occupancy change: <span class="${deltaClass}">${summary.deltaOccupancy > 0 ? "+" : ""}${summary.deltaOccupancy.toFixed(2)} pp</span></div>
+      ${memEstimateHtml}
+    `;
     wrapper.appendChild(summaryPanel);
 
     const originalRow = document.createElement("div");
@@ -435,8 +293,8 @@ function renderGCPairs() {
     summaryPanel.querySelector(".charts-btn").onclick = () =>
       showUnifiedBarPopup(beforeDist, afterDist, allKeys, "GC " + pair.idx);
     summaryPanel.querySelector(".highlight-btn").onclick = () => {
-      highlightAndFocusHeapMarker(pair.idx);
-      jumpToHeapTimeline();
+      Plot.highlightAndFocusHeapMarker(state, pair.idx);
+      Plot.jumpToHeapTimeline();
     };
     summaryPanel.querySelector(".zoom-in-btn").onclick = () =>
       manualZoom(wrapper, +2);
@@ -446,21 +304,21 @@ function renderGCPairs() {
       resetZoom(wrapper);
   }
 
-  const sortedIndices = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
-  simulatedCompactedX = [];
-  simulatedCompactedY = [];
+  const sortedIndices = state.gcPairs.map((p) => p.idx).sort((a, b) => a - b);
+  state.simulatedCompactedX = [];
+  state.simulatedCompactedY = [];
   for (
     let pos = 0;
-    pos < heapGcMarkers.length && pos < sortedIndices.length;
+    pos < state.heapGcMarkers.length && pos < sortedIndices.length;
     pos++
   ) {
     const gcIdx = sortedIndices[pos];
     if (simMap.has(gcIdx)) {
-      simulatedCompactedX.push(heapGcMarkers[pos]);
-      simulatedCompactedY.push(simMap.get(gcIdx));
+      state.simulatedCompactedX.push(state.heapGcMarkers[pos]);
+      state.simulatedCompactedY.push(simMap.get(gcIdx));
     }
   }
-  haveSimulation = simulatedCompactedX.length > 0;
+  state.haveSimulation = state.simulatedCompactedX.length > 0;
 
   buildCorrelationPanel();
   responsiveRescaleAllGrids();
@@ -470,7 +328,7 @@ function renderGCPairs() {
     adjustAllPairLayouts();
   });
   adjustAllPairLayouts();
-  updateSimulatedLine();
+  Plot.updateSimulatedLine(state);
 }
 
 function renderSquareGrid(
@@ -664,19 +522,19 @@ function showUnifiedBarPopup(beforeDist, afterDist, allKeys, title) {
   const popup = document.createElement("div");
   popup.className = "bar-popup";
   popup.innerHTML = `
-      <div class="bar-popup-header">${escapeHtml(title)} Page Type Counts
-        <button class="close-btn" onclick="this.closest('.bar-popup').remove()">&times;</button>
-      </div>
-      <div style="display:flex;gap:28px;flex-wrap:wrap;">
-        ${buildBarSection(beforeMeta, maxCount, "Before")}
-        ${buildBarSection(afterMeta, maxCount, "After")}
-        ${buildDiffSection(beforeMeta, afterMeta, maxDiff, "Diff")}
-      </div>`;
+    <div class="bar-popup-header">${U.escapeHtml(title)} Page Type Counts
+      <button class="close-btn" onclick="this.closest('.bar-popup').remove()">&times;</button>
+    </div>
+    <div style="display:flex;gap:28px;flex-wrap:wrap;">
+      ${buildBarSection(beforeMeta, maxCount, "Before")}
+      ${buildBarSection(afterMeta, maxCount, "After")}
+      ${buildDiffSection(beforeMeta, afterMeta, maxDiff, "Diff")}
+    </div>`;
   document.body.appendChild(popup);
-  makeMovable(popup, popup.querySelector(".bar-popup-header"));
+  U.makeMovable(popup, popup.querySelector(".bar-popup-header"));
 }
 function buildBarSection(meta, maxCount, title) {
-  let html = `<div style="flex:1;min-width:250px;"><div style="font-weight:bold;text-align:center;margin-bottom:6px;">${escapeHtml(title)}</div><div>`;
+  let html = `<div style="flex:1;min-width:250px;"><div style="font-weight:bold;text-align:center;margin-bottom:6px;">${U.escapeHtml(title)}</div><div>`;
   for (const m of meta) {
     const label = `${m.kind}${m.kind === "FixedBlockPage" ? "[" + m.name + "]" : m.name ? " " + m.name : ""} (${m.count})`;
     const barLen = Math.max(6, Math.round((m.count / maxCount) * 380));
@@ -687,15 +545,15 @@ function buildBarSection(meta, maxCount, title) {
       g = 255 - Math.round((255 * mean) / 100),
       b = 255 - Math.round((255 * mean) / 100);
     html += `<div style="display:flex;align-items:center;margin:3px 0;">
-          <span style="min-width:170px;text-align:right;margin-right:10px;font-family:monospace;font-size:0.72em;">${escapeHtml(label)}:</span>
-          <div style="height:14px;border-radius:6px;background:rgb(${r},${g},${b});width:${barLen}px;" title="mean ${mean}%"></div>
-        </div>`;
+      <span style="min-width:170px;text-align:right;margin-right:10px;font-family:monospace;font-size:0.72em;">${U.escapeHtml(label)}:</span>
+      <div style="height:14px;border-radius:6px;background:rgb(${r},${g},${b});width:${barLen}px;" title="mean ${mean}%"></div>
+    </div>`;
   }
   html += "</div></div>";
   return html;
 }
 function buildDiffSection(beforeMeta, afterMeta, maxDiff, title) {
-  let html = `<div style="flex:1;min-width:250px;"><div style="font-weight:bold;text-align:center;margin-bottom:6px;">${escapeHtml(title)}</div><div>`;
+  let html = `<div style="flex:1;min-width:250px;"><div style="font-weight:bold;text-align:center;margin-bottom:6px;">${U.escapeHtml(title)}</div><div>`;
   for (let i = 0; i < beforeMeta.length; i++) {
     let b = beforeMeta[i],
       a = afterMeta[i];
@@ -707,10 +565,10 @@ function buildDiffSection(beforeMeta, afterMeta, maxDiff, title) {
     let label = `${b.kind}${b.kind === "FixedBlockPage" ? "[" + b.name + "]" : b.name ? " " + b.name : ""}`;
     let sign = diff > 0 ? "+" : "";
     html += `<div style="display:flex;align-items:center;margin:3px 0;">
-          <span style="min-width:170px;text-align:right;margin-right:10px;font-family:monospace;font-size:0.72em;">${escapeHtml(label)}</span>
-          <div style="height:14px;border-radius:6px;background:${cls};width:${barLen}px;" title="diff ${diff}"></div>
-          <span style="margin-left:6px;font-size:0.72em;color:#1976d2;">${sign}${diff}</span>
-        </div>`;
+      <span style="min-width:170px;text-align:right;margin-right:10px;font-family:monospace;font-size:0.72em;">${U.escapeHtml(label)}</span>
+      <div style="height:14px;border-radius:6px;background:${cls};width:${barLen}px;" title="diff ${diff}"></div>
+      <span style="margin-left:6px;font-size:0.72em;color:#1976d2;">${sign}${diff}</span>
+    </div>`;
   }
   html += "</div></div>";
   return html;
@@ -721,33 +579,34 @@ function showInfoPopup(info) {
   popup.style.left = window.innerWidth * 0.55 + Math.random() * 60 + "px";
   popup.style.top = 200 + Math.random() * 100 + "px";
   popup.innerHTML = `
-      <div class="info-popup-header">Page Info
-        <button class="close-btn" onclick="this.closest('.info-popup').remove()">&times;</button>
-      </div>
-      <div>
-        Kind: <b>${escapeHtml(info.kind)}</b><br>
-        Name: <b>${escapeHtml(info.name)}</b><br>
-        Index: <b>${info.index}</b><br>
-        Occupancy: <b>${info.percent}%</b><br>
-        GC: <b>${escapeHtml(info.gcIdx)}</b> (${escapeHtml(info.when)})<br>
-        Mode: <b>${info.optimized ? "Simulated Compacted" : "Original"}</b>
-      </div>`;
+    <div class="info-popup-header">Page Info
+      <button class="close-btn" onclick="this.closest('.info-popup').remove()">&times;</button>
+    </div>
+    <div>
+      Kind: <b>${U.escapeHtml(info.kind)}</b><br>
+      Name: <b>${U.escapeHtml(info.name)}</b><br>
+      Index: <b>${info.index}</b><br>
+      Occupancy: <b>${info.percent}%</b><br>
+      GC: <b>${U.escapeHtml(info.gcIdx)}</b> (${U.escapeHtml(info.when)})<br>
+      Mode: <b>${info.optimized ? "Simulated Compacted" : "Original"}</b>
+    </div>`;
   document.body.appendChild(popup);
-  makeMovable(popup, popup.querySelector(".info-popup-header"));
+  U.makeMovable(popup, popup.querySelector(".info-popup-header"));
 }
 
 /* ===== Correlation Panel ===== */
 function buildCorrelationPanel() {
   const panel = document.getElementById("correlation-rows");
-  if (gcPairs.length === 0 && heapGcMarkers.length === 0) {
+  if (state.gcPairs.length === 0 && state.heapGcMarkers.length === 0) {
+    panel.innerHTML = "";
     return;
   }
   let html = "";
-  const gcIndices = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
-  if (gcIndices.length && heapGcMarkers.length) {
+  const gcIndices = state.gcPairs.map((p) => p.idx).sort((a, b) => a - b);
+  if (gcIndices.length && state.heapGcMarkers.length) {
     gcIndices.forEach((idx, pos) => {
-      if (pos < heapGcMarkers.length) {
-        html += `<div class="corr-row" data-gc="${idx}">GC ${idx} <span class="inline-badge">heap@${heapGcMarkers[pos]}</span></div>`;
+      if (pos < state.heapGcMarkers.length) {
+        html += `<div class="corr-row" data-gc="${idx}">GC ${idx} <span class="inline-badge">heap@${state.heapGcMarkers[pos]}</span></div>`;
       } else {
         html += `<div class="corr-row" data-gc="${idx}">GC ${idx} <span class="inline-badge" style="background:#999">no marker</span></div>`;
       }
@@ -759,7 +618,7 @@ function buildCorrelationPanel() {
     });
   } else {
     html += "<div><b>Heap GC markers:</b></div>";
-    heapGcMarkers.forEach((s, i) => {
+    state.heapGcMarkers.forEach((s, i) => {
       html += `<div class="corr-row" data-marker="${i}">Marker ${i + 1} @ sample ${s}</div>`;
     });
   }
@@ -772,14 +631,14 @@ function buildCorrelationPanel() {
       row.classList.add("active");
       const gcIdx = row.getAttribute("data-gc");
       if (gcIdx) {
-        highlightAndFocusHeapMarker(parseInt(gcIdx));
-        jumpToHeapTimeline();
+        Plot.highlightAndFocusHeapMarker(state, parseInt(gcIdx));
+        Plot.jumpToHeapTimeline();
         scrollToGCPair(parseInt(gcIdx));
       } else {
         const m = row.getAttribute("data-marker");
         if (m !== null) {
-          highlightAndFocusHeapMarkerByPosition(parseInt(m));
-          jumpToHeapTimeline();
+          Plot.highlightAndFocusHeapMarkerByPosition(state, parseInt(m));
+          Plot.jumpToHeapTimeline();
         }
       }
     };
@@ -799,267 +658,15 @@ function scrollToGCPair(idx) {
   }
 }
 
-/* ===== Downsampling ===== */
-function downsampleBucket(x, y, target, forceSet) {
-  const n = x.length;
-  if (n <= target) return { x, y };
-  const bucketCount = Math.min(target, n);
-  const bucketSize = n / bucketCount;
-  const chosen = new Set();
-  chosen.add(0);
-  chosen.add(n - 1);
-  for (let b = 0; b < bucketCount; b++) {
-    const start = Math.floor(b * bucketSize);
-    const end = Math.min(n - 1, Math.floor((b + 1) * bucketSize));
-    if (end <= start) continue;
-    let minIdx = start,
-      maxIdx = start;
-    let minVal = y[start],
-      maxVal = y[start];
-    for (let i = start + 1; i <= end; i++) {
-      if (y[i] < minVal) {
-        minVal = y[i];
-        minIdx = i;
-      }
-      if (y[i] > maxVal) {
-        maxVal = y[i];
-        maxIdx = i;
-      }
-    }
-    chosen.add(minIdx);
-    chosen.add(maxIdx);
-  }
-  forceSet.forEach((idx) => chosen.add(idx - 1));
-  const sorted = [...chosen].sort((a, b) => a - b);
-  return { x: sorted.map((i) => x[i]), y: sorted.map((i) => y[i]) };
-}
-function downsampleLTTB(x, y, target, forceSet) {
-  const n = x.length;
-  if (n <= target) return { x, y };
-  const keep = new Set();
-  keep.add(0);
-  keep.add(n - 1);
-  forceSet.forEach((idx) => keep.add(idx - 1));
-  const base = keep.size;
-  let remaining = target - base;
-  if (remaining <= 0) {
-    const sorted = [...keep].sort((a, b) => a - b);
-    return { x: sorted.map((i) => x[i]), y: sorted.map((i) => y[i]) };
-  }
-  const buckets = remaining;
-  const bucketSize = (n - 2) / buckets;
-  let a = 0;
-  for (let i = 0; i < buckets; i++) {
-    const rangeStart = Math.floor(i * bucketSize) + 1;
-    const rangeEnd = Math.floor((i + 1) * bucketSize) + 1;
-    if (rangeEnd >= n - 1) break;
-    let maxArea = -1,
-      chosen = rangeStart;
-    const avgRangeEnd = Math.floor((i + 2) * bucketSize) + 1;
-    const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
-    const avgEnd = Math.min(n - 1, avgRangeEnd);
-    const avgStart = Math.min(n - 1, avgRangeStart);
-    let avgX = 0,
-      avgY = 0,
-      count = 0;
-    for (let j = avgStart; j < avgEnd; j++) {
-      avgX += x[j];
-      avgY += y[j];
-      count++;
-    }
-    if (count === 0) {
-      avgX = x[rangeEnd];
-      avgY = y[rangeEnd];
-      count = 1;
-    }
-    avgX /= count;
-    avgY /= count;
-    for (let j = rangeStart; j < rangeEnd; j++) {
-      const area = Math.abs(
-        (x[a] - avgX) * (y[j] - y[a]) - (x[a] - x[j]) * (avgY - y[a]),
-      );
-      if (area > maxArea) {
-        maxArea = area;
-        chosen = j;
-      }
-    }
-    keep.add(chosen);
-    a = chosen;
-  }
-  const sorted = [...keep].sort((a, b) => a - b);
-  return { x: sorted.map((i) => x[i]), y: sorted.map((i) => y[i]) };
-}
-function applyDownsampling(algo, target) {
-  lastAlgo = algo;
-  lastTarget = target;
-  const n = heapValuesOriginal.length;
-  const xArr = Array.from({ length: n }, (_, i) => i + 1);
-  const forceSet = new Set(heapGcMarkers);
-  let result =
-    algo === "lttb"
-      ? downsampleLTTB(xArr, heapValuesOriginal, target, forceSet)
-      : downsampleBucket(xArr, heapValuesOriginal, target, forceSet);
-  dsCurrentX = result.x;
-  dsCurrentY = result.y;
-  dsActive = true;
-  updateDsInfo();
-  renderHeapPlot();
-}
-function revertToOriginal() {
-  dsActive = false;
-  updateDsInfo();
-  renderHeapPlot();
-}
-function updateDsInfo() {
-  const badge = document.getElementById("ds-info");
-  if (!badge) return;
-  if (heapValuesOriginal.length === 0) {
-    badge.textContent = "No data";
-    return;
-  }
-  if (!dsActive) {
-    badge.textContent = `Original: ${heapValuesOriginal.length} pts`;
-    badge.style.background = "#555";
-  } else {
-    badge.textContent = `Downsampled: ${dsCurrentX.length}/${heapValuesOriginal.length} pts`;
-    badge.style.background = "#1976d2";
-  }
-}
-
-/* ===== Plot Rendering ===== */
-function renderHeapPlot() {
-  const xLine = dsActive
-    ? dsCurrentX
-    : Array.from({ length: heapValuesOriginal.length }, (_, i) => i + 1);
-  const yLine = dsActive ? dsCurrentY : heapValuesOriginal;
-
-  const actualTrace = {
-    x: xLine,
-    y: yLine,
-    type: "scatter",
-    mode: "lines",
-    name: dsActive
-      ? `Heap Bytes (downsampled ${dsCurrentX.length})`
-      : "Heap Bytes",
-    line: { color: "#1976d2", width: 2 },
-  };
-  const markerTrace = {
-    x: heapGcMarkers,
-    y: heapGcMarkerValues,
-    type: "scatter",
-    mode: "markers",
-    name: "GC events",
-    marker: {
-      symbol: "star-diamond",
-      size: 9,
-      color: "red",
-      line: { color: "#000", width: 1 },
-    },
-    text: heapGcMarkers.map(
-      (idx, i) =>
-        `GC event #${i + 1} @ sample ${idx}<br>Heap: ${heapGcMarkerRawValues[i]}`,
-    ),
-    hoverinfo: "text",
-  };
-
-  let traces = [actualTrace, markerTrace];
-
-  if (haveSimulation && simulatedCompactedX.length) {
-    traces.push({
-      x: simulatedCompactedX,
-      y: simulatedCompactedY,
-      type: "scatter",
-      mode: "lines+markers",
-      name: "Simulated Compacted Heap",
-      line: { color: "#ff9800", width: 2, dash: "dot" },
-      marker: {
-        symbol: "circle",
-        size: 7,
-        color: "#ff9800",
-        line: { color: "#333", width: 1 },
-      },
-      text: simulatedCompactedY.map(
-        (v, i) =>
-          `Simulated after GC#${i + 1} @ sample ${simulatedCompactedX[i]}<br>${formatBytes(v)}`,
-      ),
-      hoverinfo: "text",
-    });
-  }
-
-  Plotly.newPlot("heap-chart", traces, {
-    title: "Heap Usage Over Time",
-    xaxis: { title: "Sample Index" },
-    yaxis: { title: "Heap Bytes" },
-    legend: { orientation: "h", x: 0, y: 1.05 },
-  });
-  plotRendered = true;
-}
-function updateSimulatedLine() {
-  renderHeapPlot();
-}
-
-/* ===== Highlight / Focus ===== */
-function highlightHeapMarker(gcIdx) {
-  if (!plotRendered) return;
-  const sorted = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
+/* ===== Misc helpers that depended on old globals ===== */
+function getMemStatForGcIdx(gcIdx) {
+  const sorted = state.gcPairs.map((p) => p.idx).sort((a, b) => a - b);
   const pos = sorted.indexOf(gcIdx);
-  if (pos < 0 || pos >= heapGcMarkers.length) return;
-  highlightHeapMarkerByPosition(pos);
-}
-function highlightHeapMarkerByPosition(pos) {
-  if (!plotRendered) return;
-  const sizes = heapGcMarkers.map((_, i) => (i === pos ? 16 : 9));
-  Plotly.restyle("heap-chart", { "marker.size": [sizes] }, 1);
-  const ann = {
-    x: heapGcMarkers[pos],
-    y: heapGcMarkerValues[pos],
-    text: `GC#${pos + 1}`,
-    showarrow: true,
-    arrowhead: 7,
-    ax: 0,
-    ay: -40,
-    bgcolor: "#1976d2",
-    font: { color: "#fff", size: 10 },
-  };
-  Plotly.relayout("heap-chart", { annotations: [ann] });
-}
-function focusOnHeapMarker(sampleIndex) {
-  if (!plotRendered) return;
-  const total = heapValuesOriginal.length;
-  const windowSize = Math.max(50, Math.round(total * 0.05));
-  let start = sampleIndex - Math.floor(windowSize / 2);
-  let end = sampleIndex + Math.floor(windowSize / 2);
-  if (start < 1) {
-    end += 1 - start;
-    start = 1;
-  }
-  if (end > total) {
-    let diff = end - total;
-    start = Math.max(1, start - diff);
-    end = total;
-  }
-  Plotly.relayout("heap-chart", { "xaxis.range": [start, end] });
-}
-function highlightAndFocusHeapMarker(gcIdx) {
-  highlightHeapMarker(gcIdx);
-  const sorted = gcPairs.map((p) => p.idx).sort((a, b) => a - b);
-  const pos = sorted.indexOf(gcIdx);
-  if (pos < 0 || pos >= heapGcMarkers.length) return;
-  focusOnHeapMarker(heapGcMarkers[pos]);
-}
-function highlightAndFocusHeapMarkerByPosition(pos) {
-  highlightHeapMarkerByPosition(pos);
-  if (pos < 0 || pos >= heapGcMarkers.length) return;
-  focusOnHeapMarker(heapGcMarkers[pos]);
-}
-function jumpToHeapTimeline() {
-  const chart = document.getElementById("heap-chart");
-  if (chart) {
-    chart.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
+  if (pos === -1 || pos >= state.heapGcMarkerRawValues.length) return null;
+  return state.heapGcMarkerRawValues[pos];
 }
 
-/* ===== File Handler (Merged) ===== */
+/* ===== File Handler (Merged) wiring ===== */
 document.getElementById("merged-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -1071,7 +678,7 @@ document.getElementById("merged-input").addEventListener("change", (e) => {
   reader.readAsText(file);
 });
 
-/* ===== Downsampling Controls ===== */
+/* ===== Downsampling Controls wiring ===== */
 document.getElementById("apply-ds-btn").addEventListener("click", () => {
   const target = parseInt(document.getElementById("ds-target").value, 10);
   const algo = document.getElementById("ds-algo").value;
@@ -1079,7 +686,7 @@ document.getElementById("apply-ds-btn").addEventListener("click", () => {
     alert("Please enter a target >= 100.");
     return;
   }
-  if (heapValuesOriginal.length === 0) {
+  if (state.heapValuesOriginal.length === 0) {
     alert("Load merged file first.");
     return;
   }
@@ -1087,18 +694,18 @@ document.getElementById("apply-ds-btn").addEventListener("click", () => {
   document.getElementById("toggle-original-btn").textContent = "Show Original";
 });
 document.getElementById("toggle-original-btn").addEventListener("click", () => {
-  if (heapValuesOriginal.length === 0) return;
-  if (dsActive) {
+  if (state.heapValuesOriginal.length === 0) return;
+  if (state.dsActive) {
     revertToOriginal();
     document.getElementById("toggle-original-btn").textContent =
       "Show Downsampled";
   } else {
-    applyDownsampling(lastAlgo, lastTarget);
+    applyDownsampling(state.lastAlgo, state.lastTarget);
     document.getElementById("toggle-original-btn").textContent =
       "Show Original";
   }
 });
 
-/* Init */
+/* ===== Init ===== */
 updateDsInfo();
 buildCorrelationPanel();
