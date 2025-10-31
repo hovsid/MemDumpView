@@ -2,8 +2,8 @@
 
 ## Quick links
 
-- Where the app entry lives: /js/main.js
-- Utility modules: /js/utils.js, /js/parser.js, /js/downsample.js, /js/plot.js
+- Where the app entry lives: src/js/main.js
+- Utility modules: src/js/utils.js, src/js/parser.js, src/js/downsample.js, src/js/plot.js
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. Serve the files
 
-- The app is a static, client-side page that uses ES modules. Serve the repository root (or the folder containing the HTML that imports /js/main.js) using any static server.
+- The app is a static, client-side page that uses ES modules. Serve the repository root (or the folder containing the HTML that imports src/js/main.js) using any static server.
 - Examples:
   - If the repository includes a modern dev setup (Vite), run:
     - npm install
@@ -42,18 +42,18 @@
 
 ## Module map — what each file does
 
-- /js/main.js
+- src/js/main.js
   - App entry and orchestrator. Manages shared application state, wires DOM events, composes UI pieces, and calls the other modules.
   - Exported (or global) state object contains arrays such as gcPairs, heapValuesOriginal, heapGcMarkers, dsCurrentX/Y, simulatedCompactedX/Y, and flags.
 
-- /js/utils.js
+- src/js/utils.js
   - Small, general-purpose helpers used across modules:
     - escapeHtml(text)
     - makeMovable(popup, header)
     - formatBytes(bytes)
   - These functions are DOM-agnostic (except makeMovable which manipulates DOM), pure and safe to unit-test.
 
-- /js/parser.js
+- src/js/parser.js
   - Parsing logic for the GC dump portion and page-usage strings.
   - Exports:
     - parseGCDumpBlocks(text)
@@ -66,14 +66,14 @@
     - simulateCompaction(dist)
   - No DOM access — keep parsing logic here so it can be unit-tested or reused in node-based tooling.
 
-- /js/downsample.js
+- src/js/downsample.js
   - Downsampling implementations that operate on numeric arrays only:
     - downsampleBucket(x, y, target, forceSet)
     - downsampleLTTB(x, y, target, forceSet)
   - They accept full x/y arrays and a set of sample indices to preserve (forceSet). They return reduced x/y arrays.
   - Pure functions — easy to test in isolation.
 
-- /js/plot.js
+- src/js/plot.js
   - Builds Plotly traces and provides highlight/zoom utilities:
     - renderHeapPlot(state)
     - updateSimulatedLine(state)
@@ -122,17 +122,17 @@
 ### Common tasks & where to change
 
 - Change parsing rules
-  - Edit /js/parser.js (add new regexes or support for additional block formats).
+  - Edit src/js/parser.js (add new regexes or support for additional block formats).
   - Add unit tests that feed example dump strings into parser functions and assert structured output.
 
 - Change plot appearance or interactivity
-  - Edit /js/plot.js. Keep Plotly-specific code here and avoid touching parsing logic.
+  - Edit src/js/plot.js. Keep Plotly-specific code here and avoid touching parsing logic.
 
 - Change downsampling behavior
-  - Edit /js/downsample.js. These functions must accept x/y arrays and a Set of forced indices; return reduced arrays.
+  - Edit src/js/downsample.js. These functions must accept x/y arrays and a Set of forced indices; return reduced arrays.
 
 - Add new UI controls
-  - Add button/controls in the HTML and wire them in /js/main.js (event handlers). Call into parser/downsample/plot as needed.
+  - Add button/controls in the HTML and wire them in src/js/main.js (event handlers). Call into parser/downsample/plot as needed.
 
 - Split main.js further
   - If main.js grows, split UI composition into smaller modules (ui.js, gcView.js) and import them from main.js. Keep state ownership in main.js or pass a controlled API for state changes.
@@ -180,7 +180,7 @@
 
 ## Adding new modules
 
-- Create a new file under /js/, export the functions you need, and import them from main.js or other modules.
+- Create a new file under src/js/, export the functions you need, and import them from main.js or other modules.
 - Ensure the module does not leak globals. Use the central state object when reading application data.
 - Add unit tests for pure functions and manual QA steps for UI-affecting code.
 
