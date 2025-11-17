@@ -1,16 +1,32 @@
 // parser.js - parsing helpers for GC dumps, page usages and small utilities
 
+// Now captures optional "Heap Dump at: <timestamp>, <heap bytes>" metadata lines
 export function parseGCDumpBlocks(text) {
   const lines = text.split(/\r?\n/);
   let blocks = [],
     current = null;
   for (const line of lines) {
-    const header = line.match(/-+(before|after) GC (\d+) -+/);
+    const header = line.match(/-+(before|after) GC (\d+) -+/i);
     if (header) {
       if (current) blocks.push(current);
-      current = { type: header[1], idx: parseInt(header[2], 10), content: [] };
-    } else if (current && line.trim().length) {
-      current.content.push(line);
+      current = {
+        type: header[1].toLowerCase(),
+        idx: parseInt(header[2], 10),
+        content: [],
+        heapDump: null,
+      };
+    } else if (current) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Detect "Heap Dump at: <timestamp>, <heap bytes>"
+      const heapMatch = trimmed.match(
+        /^\s*Heap Dump at:\s*(\d+)\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*$/i,
+      );
+      if (heapMatch) {
+        current.heapDump = { ts: Number(heapMatch[1]), bytes: Number(heapMatch[2]) };
+      } else {
+        current.content.push(line);
+      }
     }
   }
   if (current) blocks.push(current);

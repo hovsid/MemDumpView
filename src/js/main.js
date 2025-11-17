@@ -9,10 +9,12 @@ import * as Plot from "./plot.js";
 /* ===== State ===== */
 export const state = {
   gcPairs: [],
+  heapTimestamps: [], // timestamps (microseconds since epoch) for each sample (may be empty if older format)
   heapValuesOriginal: [],
-  heapGcMarkers: [],
+  heapGcMarkers: [], // sample indices (1-based) — now can grow by inserted timestamps
   heapGcMarkerValues: [],
   heapGcMarkerRawValues: [],
+  gcPairMarkerPositions: {}, // mapping gcIdx -> array of positions (indices into heapGcMarkers array)
   heapMarkerOffset: 0,
   plotRendered: false,
 
@@ -49,55 +51,181 @@ function parseMergedFile(content) {
     .filter((l) => l.trim().length > 0);
   const gcDumpLines = lines.slice(phase2Idx + 1);
 
-  // Parse heap timeline portion
+  // Parse heap timeline portion (now timestamp, bytes)
   parseHeapTimelineFromLines(heapLines);
 
-  // Parse GC dump portion (reuse existing pipeline)
+  // Parse GC dump portion (blocks may include heapDump metadata)
   const gcDumpText = gcDumpLines.join("\n");
   const blocks = P.parseGCDumpBlocks(gcDumpText);
   state.gcPairs = P.pairBlocks(blocks);
+
+  // Map GC pairs to timeline sample indices (inserting missing points when needed)
+  mapGcPairsToTimeline();
+
   renderGCPairs();
 
   statusEl.innerHTML = `<span style='color:#2e7d32'>Loaded heap samples: ${state.heapValuesOriginal.length}, GC pairs: ${state.gcPairs.length}</span>`;
 }
 
-/* ===== Parse Heap Timeline (from lines list) ===== */
+/* ===== Parse Heap Timeline (from lines list) =====
+   New expected format per line:
+     <timestamp>, <heap bytes>
+   where timestamp is microseconds since epoch (integer) and heap bytes is numeric.
+   If old format is used (no timestamps), heapTimestamps will stay empty.
+*/
 function parseHeapTimelineFromLines(lines) {
+  state.heapTimestamps = [];
   state.heapValuesOriginal = [];
   state.heapGcMarkers = [];
   state.heapGcMarkerValues = [];
   state.heapGcMarkerRawValues = [];
+  state.gcPairMarkerPositions = {};
 
   let min = Infinity,
     max = -Infinity;
+
   for (const line of lines) {
     const parts = line.split(",");
     if (parts.length !== 2) continue;
-    const v = parseFloat(parts[0]);
-    if (isNaN(v)) continue;
+    const ts = Number(parts[0].trim());
+    const v = parseFloat(parts[1].trim());
+    if (!Number.isFinite(ts) || isNaN(v)) continue;
     min = Math.min(min, v);
     max = Math.max(max, v);
   }
-  state.heapMarkerOffset = (max - min) * 0.0001;
+
+  state.heapMarkerOffset = isFinite(min) && isFinite(max) ? (max - min) * 0.0001 : 0;
 
   for (let i = 0; i < lines.length; i++) {
     const parts = lines[i].split(",");
     if (parts.length !== 2) continue;
-    const v = parseFloat(parts[0]);
-    const status = parts[1].trim().toLowerCase();
-    if (isNaN(v)) continue;
+    const ts = Number(parts[0].trim());
+    const v = parseFloat(parts[1].trim());
+    if (!Number.isFinite(ts) || isNaN(v)) continue;
+    state.heapTimestamps.push(ts);
     state.heapValuesOriginal.push(v);
-    if (status === "true") {
-      state.heapGcMarkers.push(i + 1);
-      state.heapGcMarkerRawValues.push(v);
-      state.heapGcMarkerValues.push(v + state.heapMarkerOffset);
-    }
   }
 
   // apply default downsampling using local DS functions
   applyDownsampling(state.lastAlgo, state.lastTarget);
   Plot.renderHeapPlot(state);
   buildCorrelationPanel();
+}
+
+/* ===== Map GC pairs to timeline sample indices; insert missing timestamps when needed =====
+   Behavior:
+   - For each GC pair, for both before and after blocks (if heapDump metadata present)
+     we try to map the timestamp to an exact timeline sample. If none exists we:
+       - insert a new sample (timestamp and bytes) into heapTimestamps & heapValuesOriginal
+         at the correct sorted chronological position (keeping sample indices order).
+       - adjust existing heapGcMarkers and gcPairMarkerPositions offsets to account for insertion.
+   - For each mapped block we append its sampleIndex (1-based) into state.heapGcMarkers and record
+     the position index (index in heapGcMarkers array) in state.gcPairMarkerPositions[gcIdx] array.
+   - After mapping/inserts, we recompute downsample and re-render the plot so the newly inserted points
+     are visible.
+*/
+export function mapGcPairsToTimeline() {
+  state.heapGcMarkers = [];
+  state.heapGcMarkerRawValues = [];
+  state.heapGcMarkerValues = [];
+  state.gcPairMarkerPositions = {};
+
+  // quick helper to insert a heap sample at position idx (0-based)
+  function insertHeapSampleAt(idx, ts, bytes) {
+    // insert timestamp & value
+    state.heapTimestamps.splice(idx, 0, ts);
+    state.heapValuesOriginal.splice(idx, 0, bytes);
+    // shift any existing markers that are after or at this insertion point:
+    for (let m = 0; m < state.heapGcMarkers.length; m++) {
+      if (state.heapGcMarkers[m] > idx) {
+        state.heapGcMarkers[m] = state.heapGcMarkers[m] + 1;
+      } else if (state.heapGcMarkers[m] === idx) {
+        // should not usually happen because sample indices are 1-based in heapGcMarkers,
+        // but handle defensively.
+        state.heapGcMarkers[m] = state.heapGcMarkers[m] + 1;
+      }
+    }
+    // Also update any recorded positions mapping: positions are indices into heapGcMarkers
+    // (they don't need updates here because we didn't reorder heapGcMarkers array itself).
+  }
+
+  // Build quick timestamp -> sample index (1-based) map for fast lookup
+  const tsToIndex = new Map();
+  for (let i = 0; i < state.heapTimestamps.length; i++) {
+    const ts = state.heapTimestamps[i];
+    if (!tsToIndex.has(ts)) tsToIndex.set(ts, i + 1);
+  }
+
+  // Work on sorted GC pairs so mapping order is stable
+  const sortedPairs = state.gcPairs.slice().sort((a, b) => a.idx - b.idx);
+
+  for (const pair of sortedPairs) {
+    const positionsForThisGc = [];
+    const tryMapBlock = (block) => {
+      if (!block || !block.heapDump || block.heapDump.ts == null) return;
+      const ts = block.heapDump.ts;
+      const bytes = block.heapDump.bytes;
+      let sampleIndex;
+      if (tsToIndex.has(ts)) {
+        sampleIndex = tsToIndex.get(ts);
+      } else {
+        // Insert new sample at proper chronological position
+        // Find insertion 0-based index: first i where heapTimestamps[i] > ts
+        let insertAt = state.heapTimestamps.findIndex((t) => t > ts);
+        if (insertAt === -1) {
+          // append at end
+          insertAt = state.heapTimestamps.length;
+        }
+        // default bytes fallback: prefer provided bytes, else estimate from neighbors
+        let valueToInsert = bytes;
+        if (valueToInsert == null || isNaN(valueToInsert)) {
+          // attempt to estimate from previous sample or next sample
+          const prev = insertAt - 1;
+          const next = insertAt;
+          if (prev >= 0 && state.heapValuesOriginal[prev] != null)
+            valueToInsert = state.heapValuesOriginal[prev];
+          else if (next < state.heapValuesOriginal.length && state.heapValuesOriginal[next] != null)
+            valueToInsert = state.heapValuesOriginal[next];
+          else valueToInsert = 0;
+        }
+        // perform insertion
+        insertHeapSampleAt(insertAt, ts, valueToInsert);
+        // update tsToIndex map: every existing ts with index >= insertAt must shift by +1
+        const updated = new Map();
+        for (const [k, v] of tsToIndex.entries()) {
+          const newIdx = v > insertAt ? v + 1 : v;
+          updated.set(k, newIdx);
+        }
+        updated.set(ts, insertAt + 1);
+        // replace map
+        tsToIndex.clear();
+        for (const [k, v] of updated.entries()) tsToIndex.set(k, v);
+        sampleIndex = insertAt + 1;
+      }
+
+      // Append marker for this sample
+      state.heapGcMarkers.push(sampleIndex);
+      const timelineVal =
+        state.heapValuesOriginal[sampleIndex - 1] != null
+          ? state.heapValuesOriginal[sampleIndex - 1]
+          : bytes;
+      state.heapGcMarkerRawValues.push(timelineVal);
+      state.heapGcMarkerValues.push(timelineVal + state.heapMarkerOffset);
+
+      // record position index in heapGcMarkers array (0-based)
+      positionsForThisGc.push(state.heapGcMarkers.length - 1);
+    };
+
+    // prefer before then after to keep stable ordering of markers
+    tryMapBlock(pair.before);
+    tryMapBlock(pair.after);
+
+    if (positionsForThisGc.length) state.gcPairMarkerPositions[pair.idx] = positionsForThisGc;
+  }
+
+  // After mapping and possible insertions, re-apply downsampling and re-render so new points show
+  applyDownsampling(state.lastAlgo, state.lastTarget);
+  Plot.renderHeapPlot(state);
 }
 
 /* ===== Downsampling orchestration (main keeps ds state) ===== */
@@ -304,20 +432,39 @@ function renderGCPairs() {
       resetZoom(wrapper);
   }
 
+  // Build simulated series mapping: now we must correlate which gcPairs have simulations
+  // and which marker indices correspond. Because we now append before+after markers in order,
+  // we iterate over heapGcMarkers in sequence and match to sorted gcPairs with presence.
+  let simPos = 0;
   const sortedIndices = state.gcPairs.map((p) => p.idx).sort((a, b) => a - b);
   state.simulatedCompactedX = [];
   state.simulatedCompactedY = [];
-  for (
-    let pos = 0;
-    pos < state.heapGcMarkers.length && pos < sortedIndices.length;
-    pos++
-  ) {
-    const gcIdx = sortedIndices[pos];
-    if (simMap.has(gcIdx)) {
-      state.simulatedCompactedX.push(state.heapGcMarkers[pos]);
-      state.simulatedCompactedY.push(simMap.get(gcIdx));
+  for (const idx of sortedIndices) {
+    if (simMap.has(idx)) {
+      // simMap has a simulated value for this GC index
+      // We expect the corresponding marker(s) for this GC to be present in heapGcMarkers.
+      // Since markers are appended before+after when present, find the next marker position that
+      // logically belongs to this GC: search forward from simPos and pick the first marker whose
+      // mapping was created for this gc idx by inspecting state.gcPairs mapping order isn't stored,
+      // so we rely on consistent append ordering (we appended before then after for sortedPairs).
+      // For simplicity, pick the marker at simPos if available.
+      if (simPos < state.heapGcMarkers.length) {
+        state.simulatedCompactedX.push(state.heapGcMarkers[simPos]);
+        state.simulatedCompactedY.push(simMap.get(idx));
+        simPos++;
+      }
+    }
+    // advance simPos by number of markers this GC contributed (0..2)
+    // Count markers by checking presence of heapDump timestamps for before/after
+    const pair = state.gcPairs.find((p) => p.idx === idx);
+    if (pair) {
+      let contributed = 0;
+      if (pair.before && pair.before.heapDump && state.heapTimestamps.includes(pair.before.heapDump.ts)) contributed++;
+      if (pair.after && pair.after.heapDump && state.heapTimestamps.includes(pair.after.heapDump.ts)) contributed++;
+      simPos += contributed - (simMap.has(idx) ? 1 : 0); // we already consumed one above if simMap had it
     }
   }
+
   state.haveSimulation = state.simulatedCompactedX.length > 0;
 
   buildCorrelationPanel();
