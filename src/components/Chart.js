@@ -1,6 +1,6 @@
 import { formatSI, formatSeconds } from "../utils/format.js";
 import { largestTriangleThreeBuckets, binarySearchLeft, binarySearchRight } from "../utils/lttb.js";
-import { parseCSVStream, parseCSVText } from "../utils/csv.js";
+import { parseCSVStream } from "../utils/csv.js";
 
 export class Chart {
   constructor(container) {
@@ -18,9 +18,6 @@ export class Chart {
     this.pinnedPoints = [];
     this.originalViewSet = false;
     this.originalViewMin = null; this.originalViewMax = null;
-
-    // sample target (public controllable)
-    this.sampleTarget = 1000;
 
     // events
     this.events = new Map();
@@ -47,59 +44,6 @@ export class Chart {
   _emit(evt, payload) {
     const handlers = this.events.get(evt) || [];
     for (const h of handlers) h(payload);
-  }
-
-  // ---------- public API ----------
-  setSampleTarget(n) {
-    const v = Math.max(10, Math.round(Number(n) || 0));
-    this.sampleTarget = v;
-    this._emit('status', `采样目标设置为 ${v}`);
-    // note: consumer should call resampleInViewAndRender() to apply immediately
-  }
-
-  setColors(colors = []) {
-    if (!Array.isArray(colors) || colors.length === 0) return;
-    for (let i = 0; i < this.seriesList.length; i++) {
-      this.seriesList[i].color = colors[i % colors.length];
-    }
-    this.render();
-  }
-
-  async loadSeriesFromText(name = 'series', text = '') {
-    // parse text via parseCSVText util
-    this._emit('status', `解析文本数据 ${name}...`);
-    const id = crypto.randomUUID?.() || `s${Date.now()}`;
-    const meta = { id, name: name || 'series', raw: [], rel: [], sampled: [], color: '', visible: true, firstX: null, headerCols: null };
-    this.seriesList.push(meta);
-    this._emit('seriesChanged', this.seriesList);
-    try {
-      const result = await parseCSVText(text);
-      meta.headerCols = result.headerCols;
-      meta.raw = result.points.slice();
-      meta.raw.sort((a,b)=>a[0]-b[0]);
-      if (!meta.raw.length) {
-        this.seriesList = this.seriesList.filter(s => s !== meta);
-        this._emit('seriesChanged', this.seriesList);
-        this._emit('status', `文本 ${name} 无数据`);
-        return;
-      }
-      meta.firstX = meta.raw[0][0];
-      meta.rel = meta.raw.map(p => [p[0] - meta.firstX, p[1]]);
-      this._applyColors();
-      const ext = this.computeGlobalExtents();
-      if (!this.originalViewSet) {
-        this.originalViewMin = 0;
-        this.originalViewMax = ext.max;
-        this.originalViewSet = true;
-      }
-      this.viewMinX = 0; this.viewMaxX = ext.max;
-      this.setCanvasSize(); this.resampleInViewAndRender();
-      this._emit('status', `解析完成：${name}`);
-      this._emit('seriesChanged', this.seriesList);
-    } catch (err) {
-      console.error(err);
-      this._emit('status', `解析失败：${err && err.message ? err.message : err}`);
-    }
   }
 
   // ---------- file loading ----------
@@ -175,7 +119,7 @@ export class Chart {
     const plotW = this.canvas.width - marginBase.left - marginBase.right;
     const pixelTargetVal = 1;
     const approx = Math.max(50, Math.min(20000, Math.round(plotW / this.dpr * pixelTargetVal)));
-    const globalTarget = Math.max(10, Math.round(this.sampleTarget || 1000));
+    const globalTarget = 1000;
     const finalTarget = Math.min(globalTarget, approx);
 
     const ext = this.computeGlobalExtents();
@@ -195,8 +139,11 @@ export class Chart {
       else s.sampled = largestTriangleThreeBuckets(windowArr, finalTarget);
     }
 
-    // remove pinned for hidden series
-    this.pinnedPoints = this.pinnedPoints.filter(p => this.seriesList.find(s => s.id === p.seriesId && s.visible));
+    // NOTE: Do NOT remove pinnedPoints when a series is hidden.
+    // Removing them caused pins to vanish permanently when toggling visibility.
+    // Keep pinnedPoints intact — render/update logic will skip drawing tooltips/pins for hidden series.
+    // this.pinnedPoints = this.pinnedPoints.filter(p => this.seriesList.find(s => s.id === p.seriesId && s.visible));
+
     this.render();
     this._emit('resampled');
   }
@@ -318,7 +265,7 @@ export class Chart {
       ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(lx, ly, Math.max(2.5 * this.dpr, 2), 0, Math.PI*2); ctx.fill();
     }
 
-    // draw pinned points
+    // draw pinned points (only for visible series)
     for (const p of this.pinnedPoints) {
       const s = this.seriesList.find(x => x.id === p.seriesId && x.visible);
       if (!s) continue;
@@ -784,21 +731,14 @@ export class Chart {
     this.resampleInViewAndRender();
   }
 
-  // export PNG (improved)
-  exportPNG(exportScale = 2) {
-    // exportScale multiplies pixel resolution (canvas.width/height are in device pixels already)
-    const scale = Math.max(1, Math.round(exportScale || 1));
-    const srcW = this.canvas.width;
-    const srcH = this.canvas.height;
-    const dstW = srcW * scale;
-    const dstH = srcH * scale;
-    const tmp = document.createElement('canvas');
-    tmp.width = dstW; tmp.height = dstH;
-    const tctx = tmp.getContext('2d');
-    // draw source canvas into the destination sized canvas (this will scale pixels)
-    // use imageSmoothingEnabled to control interpolation (keep true for smoother, false for nearest)
-    tctx.imageSmoothingEnabled = true;
-    tctx.drawImage(this.canvas, 0, 0, srcW, srcH, 0, 0, dstW, dstH);
+  // export PNG (simple)
+  exportPNG() {
+    const exportScale = 2;
+    const w = this.canvas.width * exportScale; const h = this.canvas.height * exportScale;
+    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+    const tctx = tmp.getContext('2d'); tctx.scale(exportScale, exportScale);
+    // reuse current canvas pixels
+    tctx.drawImage(this.canvas, 0, 0, tmp.width, tmp.height);
     return new Promise(resolve => tmp.toBlob(blob => resolve(blob), 'image/png'));
   }
 }
