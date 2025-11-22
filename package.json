@@ -1,19 +1,15 @@
 {
-  "name": "heapview",
-  "version": "1.0.0",
-  "description": "Heap Dump Viewer",
+  "name": "modular-plot-app",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint . --ext .js,.ts || true",
-    "format": "prettier --write . || true"
+    "preview": "vite preview --port 5174"
   },
+  "dependencies": {},
   "devDependencies": {
-    "eslint": "^x.x.x",
-    "globals": "^x.x.x",
-    "prettier": "^x.x.x",
-    "vite": "^x.x.x"
+    "vite": "^5.0.0"
   }
 }
