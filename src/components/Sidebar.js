@@ -44,21 +44,6 @@ export class Sidebar {
         <div id="legend" class="legend" style="margin-top:8px;"></div>
         <div class="small" style="margin-top:8px">已加载: <span id="seriesCount">0</span></div>
       </div>
-      <div class="box" aria-label="视窗控制">
-        <strong>视窗控制</strong>
-        <div class="control-inline" style="margin-top:8px; display:flex; align-items:center; gap:10px;">
-          <div style="flex:1; min-width:0;">
-            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px;">目标采样点: <span id="globalTarget">1000</span></label>
-            <input id="targetPoints" type="range" min="50" max="10000" step="10" value="1000" />
-          </div>
-        </div>
-        <div style="margin-top:8px;">
-          <button id="autoFit" class="card-btn">自动适配像素</button>
-          <button id="zoomReset" class="card-btn">重置视窗</button>
-          <button id="resetOriginal" class="card-btn">恢复初始视窗</button>
-          <button id="fitAll" class="card-btn">适配所有数据</button>
-        </div>
-      </div>
     `;
     this._refs = {
       openFile: this.el.querySelector('#openFile'),
@@ -67,12 +52,6 @@ export class Sidebar {
       exportPinned: this.el.querySelector('#exportPinned'),
       clearAll: this.el.querySelector('#clearAll'),
       legend: this.el.querySelector('#legend'),
-      targetPoints: this.el.querySelector('#targetPoints'),
-      globalTarget: this.el.querySelector('#globalTarget'),
-      autoFit: this.el.querySelector('#autoFit'),
-      zoomReset: this.el.querySelector('#zoomReset'),
-      resetOriginal: this.el.querySelector('#resetOriginal'),
-      fitAll: this.el.querySelector('#fitAll'),
       seriesCount: this.el.querySelector('#seriesCount')
     };
     this._attach();
@@ -84,14 +63,6 @@ export class Sidebar {
     this._refs.exportCsv.addEventListener('click', () => this.onExportCSV());
     this._refs.exportPinned.addEventListener('click', () => this.onExportPinned());
     this._refs.clearAll.addEventListener('click', () => this.onClearAll());
-    this._refs.targetPoints.addEventListener('input', (e) => {
-      this._refs.globalTarget.textContent = e.target.value;
-      this.onTargetChange(Number(e.target.value));
-    });
-    this._refs.autoFit.addEventListener('click', () => this.onAutoFit());
-    this._refs.zoomReset.addEventListener('click', () => this.onZoomReset());
-    this._refs.resetOriginal.addEventListener('click', () => this.onResetOriginal());
-    this._refs.fitAll.addEventListener('click', () => this.onFitAll());
   }
 
   updateLegend(seriesList) {
@@ -112,12 +83,11 @@ export class Sidebar {
       // click toggles visibility via provided callback (main app should set sidebar.legendClick)
       item.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        // toggle visual immediately for snappy feedback; main handler will update actual series visibility/state
         item.style.opacity = (s.visible ? '0.45' : '1');
         this.legendClick(s);
       });
 
-      // explicit hover highlight (ensure visible even if :hover doesn't render due to environment)
+      // explicit hover highlight
       item.addEventListener('mouseenter', () => {
         item.style.transform = 'translateY(-3px)';
         item.style.boxShadow = 'var(--shadow-subtle)';

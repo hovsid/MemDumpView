@@ -21,7 +21,26 @@ const rightbar = document.getElementById('rightbar');
 
 const chart = new Chart(chartWrap);
 
-// tooltip element (hover)
+// add a small reset button in the top-right corner of the chart card
+const resetBtn = document.createElement('button');
+resetBtn.className = 'chart-reset-btn';
+resetBtn.title = '重置视窗';
+resetBtn.innerHTML = `
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-2.6-6.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M21 3v6h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+chartWrap.appendChild(resetBtn);
+resetBtn.addEventListener('click', () => {
+  if (!chart.originalViewSet) { setStatus('尚未记录初始视窗'); return; }
+  chart.viewMinX = chart.originalViewMin;
+  chart.viewMaxX = chart.originalViewMax;
+  chart.resampleInViewAndRender();
+  setStatus('视窗已重置');
+});
+
+// tooltip element
 const tooltip = document.createElement('div');
 tooltip.className = 'tooltip';
 document.body.appendChild(tooltip);
@@ -39,7 +58,7 @@ pinnedListContainer.innerHTML = `<strong>标记点（Pinned）</strong><div clas
 rightbar.appendChild(pinnedListContainer);
 const pinnedList = new PinnedList(document.getElementById('pinnedListRoot'));
 
-// wire sidebar basic actions
+// wire sidebar
 sidebar.onOpenFile = async () => {
   const fi = document.createElement('input');
   fi.type = 'file'; fi.accept = '.csv,text/csv,text/plain'; fi.multiple = true; fi.style.display = 'none';
@@ -76,7 +95,7 @@ sidebar.onExportPinned = () => {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'pinned.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 };
 sidebar.onClearAll = () => { chart.seriesList = []; chart.clearPinned(); chart.resampleInViewAndRender(); sidebar.updateLegend([]); pinnedList.setPinned([]); setStatus('已清除所有序列及标记'); };
-sidebar.onTargetChange = (v) => { /* optional: forward to chart.setSampleTarget if implemented */ };
+sidebar.onTargetChange = (v) => { /* optionally forward to chart */ };
 sidebar.onAutoFit = () => { chart.resampleInViewAndRender(); setStatus('已自动适配像素'); };
 sidebar.onZoomReset = () => { chart.viewMinX = 0; chart.viewMaxX = chart.computeGlobalExtents().max; chart.resampleInViewAndRender(); setStatus('视窗已重置'); };
 sidebar.onResetOriginal = () => {
@@ -85,7 +104,7 @@ sidebar.onResetOriginal = () => {
 };
 sidebar.onFitAll = () => { const ext = chart.computeGlobalExtents(); chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInViewAndRender(); setStatus('已适配所有数据'); };
 
-// --- Ensure legend click toggles visibility (fix for the repeated regression)
+// ensure legend click toggles visibility
 sidebar.legendClick = (series) => {
   series.visible = !series.visible;
   chart.resampleInViewAndRender();
@@ -100,7 +119,7 @@ chart.on('pinnedChanged', (pins) => {
   pinnedList.setPinned(pins);
 });
 chart.on('resampled', () => {
-  // pinned tooltips will be updated on 'rendered' event
+  // update pinned tooltips positions via render event
 });
 chart.on('rendered', ({metrics}) => {
   // update pinned tooltip DOM positions if pinned exist
@@ -129,7 +148,7 @@ pinnedList.onSelect = (p, ev) => {
   chart._emit('pinnedChanged', chart.pinnedPoints);
 };
 
-// keyboard handling
+// expose keyboard handling
 window.addEventListener('keydown', (ev) => chart.handleKeyEvent(ev), true);
 
 // Drag & drop upload (on chartWrap)
@@ -273,7 +292,7 @@ function updatePinnedTooltips(metrics) {
   }
 }
 
-// initial sample loading (best-effort)
+// try load sample files (best-effort)
 (async function tryLoadSamples() {
   const samples = ['sample1.csv', 'sample2.csv'];
   for (const s of samples) {
