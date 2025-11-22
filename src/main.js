@@ -1,6 +1,7 @@
 import { Sidebar } from "./components/Sidebar.js";
 import { Chart } from "./components/Chart.js";
 import { PinnedList } from "./components/PinnedList.js";
+import { formatSeconds } from "./utils/format.js";
 
 const app = document.getElementById('app');
 app.innerHTML = `
@@ -84,6 +85,16 @@ sidebar.onResetOriginal = () => {
 };
 sidebar.onFitAll = () => { const ext = chart.computeGlobalExtents(); chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInViewAndRender(); setStatus('已适配所有数据'); };
 
+// ---- bind legendClick so clicking legend toggles visibility ----
+sidebar.legendClick = (series) => {
+  series.visible = !series.visible;
+  // refresh sampling/render
+  chart.resampleInViewAndRender();
+  // update legend so opacity and order reflect new state
+  sidebar.updateLegend(chart.seriesList);
+  setStatus(`${series.name} 已${series.visible ? '显示' : '隐藏'}`);
+};
+
 // wire chart events to UI
 chart.on('status', (msg) => setStatus(msg));
 chart.on('seriesChanged', (series) => sidebar.updateLegend(series));
@@ -106,7 +117,7 @@ chart.on('hover', (candidate) => {
   tooltip.style.color = '#fff';
   tooltip.style.padding = '8px 10px';
   tooltip.style.borderRadius = '8px';
-  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${(candidate.point[0]/1e6).toFixed(3)}s — ${candidate.point[1]}</div>`;
+  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${formatSeconds(candidate.point[0]/1e6)} — ${candidate.point[1]}</div>`;
 });
 
 // pinnedList interactions
@@ -127,11 +138,7 @@ window.addEventListener('keydown', (ev) => chart.handleKeyEvent(ev), true);
 let dragCounter = 0;
 const dropOverlay = document.createElement('div');
 dropOverlay.className = 'drop-overlay';
-// make overlay inert for pointer events so it doesn't steal dragenter/dragleave
-dropOverlay.style.position = 'absolute';
-dropOverlay.style.inset = '0';
 dropOverlay.style.display = 'none';
-dropOverlay.style.pointerEvents = 'none';
 dropOverlay.innerHTML = `<div class="message">释放文件以上传（支持多个 CSV）</div>`;
 chartWrap.appendChild(dropOverlay);
 
@@ -169,17 +176,16 @@ chartWrap.addEventListener('drop', async (ev) => {
 });
 
 // Utility: update pinned tooltip DOMs (created here)
-// Previously appended to document.body with fixed positioning which caused tooltips to escape chart card.
-// Now append tooltips to chart.container and use absolute positioning so they are clipped by chart-wrap overflow:hidden.
 function updatePinnedTooltips(metrics) {
   // Remove existing pinned tooltip elements first
-  const existing = chart.container.querySelectorAll('.pinned-tooltip');
+  // We'll create a simple set of fixed-position small tooltips near points
+  const existing = document.querySelectorAll('.pinned-tooltip');
   existing.forEach(n => n.remove());
   if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) return;
   const m = metrics || chart.getPlotMetrics();
   const { margin, plotW, plotH, minXSec, maxXSec, minY, maxY } = m;
-  const canvasRect = chart.canvas.getBoundingClientRect();
-  const containerRect = chart.container.getBoundingClientRect();
+  const rect = chart.canvas.getBoundingClientRect();
+  const chartRect = chart.container.getBoundingClientRect();
   const xToPx = (xMicro) => margin.left + ((xMicro / 1e6 - minXSec) / ((maxXSec - minXSec) || 1)) * plotW;
   const yToPx = (y) => margin.top + plotH - ((y - minY) / ((maxY - minY) || 1)) * plotH;
   for (const p of chart.pinnedPoints) {
@@ -187,35 +193,20 @@ function updatePinnedTooltips(metrics) {
     if (!s) continue;
     const pxCanvas = xToPx(p.relMicro);
     const pyCanvas = yToPx(p.val);
-    // compute position relative to chart.container (absolute inside container)
-    const left = (pxCanvas / chart.dpr) + (canvasRect.left - containerRect.left);
-    const top = (pyCanvas / chart.dpr) + (canvasRect.top - containerRect.top) - 8;
+    const clientX = rect.left + (pxCanvas / chart.dpr);
+    const clientY = rect.top + (pyCanvas / chart.dpr) - 8;
     const el = document.createElement('div');
     el.className = 'pinned-tooltip';
-    el.style.position = 'absolute';
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
+    el.style.position = 'fixed';
+    el.style.left = clientX + 'px';
+    el.style.top = clientY + 'px';
     el.style.background = p.selected ? 'linear-gradient(90deg, rgba(43,108,176,0.95), rgba(43,108,176,0.85))' : (p.color || '#333');
     el.style.color = '#fff';
     el.style.padding = '8px 10px';
     el.style.borderRadius = '8px';
     el.style.fontSize = '12px';
-    el.style.zIndex = 9998;
     el.innerHTML = `<div style="font-weight:700">${p.seriesName}</div><div style="opacity:0.95">${(p.relMicro/1e6).toFixed(3)}s — ${p.val}</div>`;
-    chart.container.appendChild(el);
-    // clamp within container after added (prevent overflow beyond card bounds)
-    const cw = chart.container.clientWidth;
-    const ch = chart.container.clientHeight;
-    const ew = el.offsetWidth;
-    const eh = el.offsetHeight;
-    let lx = parseFloat(el.style.left);
-    let ty = parseFloat(el.style.top);
-    if (lx < 0) lx = 4;
-    if (lx + ew > cw) lx = Math.max(4, cw - ew - 4);
-    if (ty < 0) ty = 4;
-    if (ty + eh > ch) ty = Math.max(4, ch - eh - 4);
-    el.style.left = lx + 'px';
-    el.style.top = ty + 'px';
+    document.body.appendChild(el);
   }
 }
 

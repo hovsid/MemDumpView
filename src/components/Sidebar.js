@@ -89,8 +89,29 @@ export class Sidebar {
       const item = document.createElement('div');
       item.className = 'legend-item';
       item.style.opacity = s.visible ? '1' : '0.45';
-      item.innerHTML = `<span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:${s.color||colors[i]}"></span><span>${s.name}</span>`;
-      item.addEventListener('click', () => this.legendClick(s));
+      item.style.display = 'flex';
+      item.style.alignItems = 'center';
+      item.style.gap = '8px';
+      item.innerHTML = `<span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:${s.color||colors[i]}"></span><span style="flex:1;min-width:0">${s.name}</span>`;
+
+      // click toggles visibility via provided callback (main app should set sidebar.legendClick)
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // toggle visual immediately for snappy feedback; main handler will update actual series visibility/state
+        item.style.opacity = (s.visible ? '0.45' : '1');
+        this.legendClick(s);
+      });
+
+      // explicit hover highlight (ensure visible even if :hover doesn't render due to environment)
+      item.addEventListener('mouseenter', () => {
+        item.style.transform = 'translateY(-3px)';
+        item.style.boxShadow = 'var(--shadow-subtle)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.transform = '';
+        item.style.boxShadow = '';
+      });
+
       el.appendChild(item);
     });
     this._refs.seriesCount.textContent = seriesList.length;
