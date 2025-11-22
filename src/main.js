@@ -1,7 +1,6 @@
 import { Sidebar } from "./components/Sidebar.js";
 import { Chart } from "./components/Chart.js";
 import { PinnedList } from "./components/PinnedList.js";
-import { formatSeconds } from "./utils/format.js";
 
 const app = document.getElementById('app');
 app.innerHTML = `
@@ -39,7 +38,7 @@ pinnedListContainer.innerHTML = `<strong>标记点（Pinned）</strong><div clas
 rightbar.appendChild(pinnedListContainer);
 const pinnedList = new PinnedList(document.getElementById('pinnedListRoot'));
 
-// wire sidebar
+// wire sidebar (file actions etc)
 sidebar.onOpenFile = async () => {
   const fi = document.createElement('input');
   fi.type = 'file'; fi.accept = '.csv,text/csv,text/plain'; fi.multiple = true; fi.style.display = 'none';
@@ -88,9 +87,9 @@ sidebar.onFitAll = () => { const ext = chart.computeGlobalExtents(); chart.viewM
 // ---- bind legendClick so clicking legend toggles visibility ----
 sidebar.legendClick = (series) => {
   series.visible = !series.visible;
-  // refresh sampling/render
+  // re-sample & render
   chart.resampleInViewAndRender();
-  // update legend so opacity and order reflect new state
+  // refresh legend visual state
   sidebar.updateLegend(chart.seriesList);
   setStatus(`${series.name} 已${series.visible ? '显示' : '隐藏'}`);
 };
@@ -117,7 +116,7 @@ chart.on('hover', (candidate) => {
   tooltip.style.color = '#fff';
   tooltip.style.padding = '8px 10px';
   tooltip.style.borderRadius = '8px';
-  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${formatSeconds(candidate.point[0]/1e6)} — ${candidate.point[1]}</div>`;
+  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${(candidate.point[0]/1e6).toFixed(3)}s — ${candidate.point[1]}</div>`;
 });
 
 // pinnedList interactions
