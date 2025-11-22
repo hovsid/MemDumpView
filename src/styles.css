@@ -33,8 +33,19 @@ canvas { width:100%; height:100%; border-radius:8px; display:block; cursor:cross
 .pinned-item { display:flex; gap:8px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; transition: background 120ms ease, box-shadow 120ms ease; }
 .pinned-item .meta { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .pinned-item.selected { background:linear-gradient(90deg, rgba(43,108,176,0.06), rgba(43,108,176,0.03)); box-shadow: 0 6px 18px rgba(43,108,176,0.06); border-left:3px solid var(--selected-accent); }
+
+/* selection rectangle */
 .select-rect { position:absolute; border:1px dashed rgba(43,108,176,0.9); background: rgba(43,108,176,0.08); pointer-events:none; z-index:40; border-radius:6px; }
+
+/* drag-overlay for file drop; pointer-events:none prevents it from stealing dragenter/dragleave */
+.drop-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: rgba(43,108,176,0.04); z-index:30; pointer-events:none; font-size:16px; color:var(--muted); }
+
+/* pinned tooltip styling (positioned absolute inside .chart-wrap so it gets clipped) */
+.pinned-tooltip { position:absolute; z-index:9998; color:#fff; padding:8px 10px; border-radius:8px; font-size:12px; box-shadow:0 8px 30px rgba(10,20,40,0.08); pointer-events:auto; }
+
+/* hover tooltip (still fixed on body) */
 .tooltip { z-index:9999; position:fixed; pointer-events:none; display:none; }
+
 @media (max-width: 1000px) {
   .sidebar, .rightbar { display:none; }
   .chart-wrap { flex:1 1 auto; }

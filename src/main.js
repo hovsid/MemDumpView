@@ -1,7 +1,6 @@
 import { Sidebar } from "./components/Sidebar.js";
 import { Chart } from "./components/Chart.js";
 import { PinnedList } from "./components/PinnedList.js";
-import { formatSeconds } from "./utils/format.js";
 
 const app = document.getElementById('app');
 app.innerHTML = `
@@ -54,8 +53,7 @@ sidebar.onOpenFile = async () => {
   setTimeout(()=> fi.remove(), 3000);
 };
 sidebar.onExportPNG = async () => {
-  // 允许未来传入 scale（可以扩展 Sidebar UI），目前使用默认 scale=2
-  const blob = await chart.exportPNG(2);
+  const blob = await chart.exportPNG();
   if (!blob) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = 'chart.png'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
@@ -77,8 +75,7 @@ sidebar.onExportPinned = () => {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'pinned.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 };
 sidebar.onClearAll = () => { chart.seriesList = []; chart.clearPinned(); chart.resampleInViewAndRender(); sidebar.updateLegend([]); pinnedList.setPinned([]); setStatus('已清除所有序列及标记'); };
-// connect targetPoints to chart
-sidebar.onTargetChange = (v) => { chart.setSampleTarget(v); chart.resampleInViewAndRender(); setStatus(`目标采样点: ${v}`); };
+sidebar.onTargetChange = (v) => { /* optionally forward to chart */ };
 sidebar.onAutoFit = () => { chart.resampleInViewAndRender(); setStatus('已自动适配像素'); };
 sidebar.onZoomReset = () => { chart.viewMinX = 0; chart.viewMaxX = chart.computeGlobalExtents().max; chart.resampleInViewAndRender(); setStatus('视窗已重置'); };
 sidebar.onResetOriginal = () => {
@@ -109,7 +106,7 @@ chart.on('hover', (candidate) => {
   tooltip.style.color = '#fff';
   tooltip.style.padding = '8px 10px';
   tooltip.style.borderRadius = '8px';
-  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${formatSeconds(candidate.point[0]/1e6)} — ${candidate.point[1]}</div>`;
+  tooltip.innerHTML = `<div style="font-weight:700">${candidate.series.name}</div><div style="opacity:0.95">${(candidate.point[0]/1e6).toFixed(3)}s — ${candidate.point[1]}</div>`;
 });
 
 // pinnedList interactions
@@ -130,7 +127,11 @@ window.addEventListener('keydown', (ev) => chart.handleKeyEvent(ev), true);
 let dragCounter = 0;
 const dropOverlay = document.createElement('div');
 dropOverlay.className = 'drop-overlay';
+// make overlay inert for pointer events so it doesn't steal dragenter/dragleave
+dropOverlay.style.position = 'absolute';
+dropOverlay.style.inset = '0';
 dropOverlay.style.display = 'none';
+dropOverlay.style.pointerEvents = 'none';
 dropOverlay.innerHTML = `<div class="message">释放文件以上传（支持多个 CSV）</div>`;
 chartWrap.appendChild(dropOverlay);
 
@@ -168,75 +169,53 @@ chartWrap.addEventListener('drop', async (ev) => {
 });
 
 // Utility: update pinned tooltip DOMs (created here)
-// 优化：复用已存在的 DOM 元素，避免每次 render 都 remove/create
-const pinnedTooltipMap = new Map(); // key -> {el, lastSeenAt}
-function pinnedKey(p) { return `${p.seriesId}::${p.relMicro}`; }
-
+// Previously appended to document.body with fixed positioning which caused tooltips to escape chart card.
+// Now append tooltips to chart.container and use absolute positioning so they are clipped by chart-wrap overflow:hidden.
 function updatePinnedTooltips(metrics) {
-  const now = Date.now();
-  // mark all existing as unseen; we'll set lastSeenAt for ones we keep
-  for (const v of pinnedTooltipMap.values()) v._seen = false;
-
-  if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) {
-    // remove all
-    for (const kv of pinnedTooltipMap.entries()) {
-      try { kv[1].el.remove(); } catch(e){}
-    }
-    pinnedTooltipMap.clear();
-    return;
-  }
-
+  // Remove existing pinned tooltip elements first
+  const existing = chart.container.querySelectorAll('.pinned-tooltip');
+  existing.forEach(n => n.remove());
+  if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) return;
   const m = metrics || chart.getPlotMetrics();
   const { margin, plotW, plotH, minXSec, maxXSec, minY, maxY } = m;
-  const rect = chart.canvas.getBoundingClientRect();
+  const canvasRect = chart.canvas.getBoundingClientRect();
+  const containerRect = chart.container.getBoundingClientRect();
   const xToPx = (xMicro) => margin.left + ((xMicro / 1e6 - minXSec) / ((maxXSec - minXSec) || 1)) * plotW;
   const yToPx = (y) => margin.top + plotH - ((y - minY) / ((maxY - minY) || 1)) * plotH;
-
-  const currentKeys = new Set();
   for (const p of chart.pinnedPoints) {
-    const key = pinnedKey(p);
-    currentKeys.add(key);
-    let node = pinnedTooltipMap.get(key);
     const s = chart.seriesList.find(x => x.id === p.seriesId && x.visible);
-    if (!s) {
-      // if series hidden, skip (but keep DOM around)
-      if (node) { node.el.style.display = 'none'; node._seen = true; node.lastSeenAt = now; }
-      continue;
-    }
+    if (!s) continue;
     const pxCanvas = xToPx(p.relMicro);
     const pyCanvas = yToPx(p.val);
-    const clientX = rect.left + (pxCanvas / chart.dpr);
-    const clientY = rect.top + (pyCanvas / chart.dpr) - 8;
-    if (!node) {
-      const el = document.createElement('div');
-      el.className = 'pinned-tooltip';
-      el.style.position = 'fixed';
-      el.style.zIndex = 9998;
-      document.body.appendChild(el);
-      node = { el, lastSeenAt: now, _seen: true };
-      pinnedTooltipMap.set(key, node);
-    } else {
-      node._seen = true;
-      node.lastSeenAt = now;
-      node.el.style.display = 'block';
-    }
-    node.el.style.left = clientX + 'px';
-    node.el.style.top = clientY + 'px';
-    node.el.style.background = p.selected ? 'linear-gradient(90deg, rgba(43,108,176,0.95), rgba(43,108,176,0.85))' : (p.color || '#333');
-    node.el.style.color = '#fff';
-    node.el.style.padding = '8px 10px';
-    node.el.style.borderRadius = '8px';
-    node.el.style.fontSize = '12px';
-    node.el.innerHTML = `<div style="font-weight:700">${p.seriesName}</div><div style="opacity:0.95">${(p.relMicro/1e6).toFixed(3)}s — ${p.val}</div>`;
-  }
-
-  // clean up old nodes not in currentKeys (delay removal slightly to avoid flicker)
-  for (const [key, node] of pinnedTooltipMap.entries()) {
-    if (!currentKeys.has(key)) {
-      // remove
-      try { node.el.remove(); } catch(e){}
-      pinnedTooltipMap.delete(key);
-    }
+    // compute position relative to chart.container (absolute inside container)
+    const left = (pxCanvas / chart.dpr) + (canvasRect.left - containerRect.left);
+    const top = (pyCanvas / chart.dpr) + (canvasRect.top - containerRect.top) - 8;
+    const el = document.createElement('div');
+    el.className = 'pinned-tooltip';
+    el.style.position = 'absolute';
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+    el.style.background = p.selected ? 'linear-gradient(90deg, rgba(43,108,176,0.95), rgba(43,108,176,0.85))' : (p.color || '#333');
+    el.style.color = '#fff';
+    el.style.padding = '8px 10px';
+    el.style.borderRadius = '8px';
+    el.style.fontSize = '12px';
+    el.style.zIndex = 9998;
+    el.innerHTML = `<div style="font-weight:700">${p.seriesName}</div><div style="opacity:0.95">${(p.relMicro/1e6).toFixed(3)}s — ${p.val}</div>`;
+    chart.container.appendChild(el);
+    // clamp within container after added (prevent overflow beyond card bounds)
+    const cw = chart.container.clientWidth;
+    const ch = chart.container.clientHeight;
+    const ew = el.offsetWidth;
+    const eh = el.offsetHeight;
+    let lx = parseFloat(el.style.left);
+    let ty = parseFloat(el.style.top);
+    if (lx < 0) lx = 4;
+    if (lx + ew > cw) lx = Math.max(4, cw - ew - 4);
+    if (ty < 0) ty = 4;
+    if (ty + eh > ch) ty = Math.max(4, ch - eh - 4);
+    el.style.left = lx + 'px';
+    el.style.top = ty + 'px';
   }
 }
 
