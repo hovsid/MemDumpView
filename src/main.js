@@ -1,5 +1,6 @@
 import { Sidebar } from "./components/Sidebar.js";
-import { Chart } from "./components/Chart.js";
+import { ChartCore } from "./components/ChartCore.js";
+import { ChartUI } from "./components/ChartUI.js";
 import { PinnedList } from "./components/PinnedList.js";
 import { formatSeconds } from "./utils/format.js";
 
@@ -19,28 +20,27 @@ const sidebar = new Sidebar(document.getElementById('sidebar'));
 const chartWrap = document.getElementById('chartWrap');
 const rightbar = document.getElementById('rightbar');
 
-const chart = new Chart(chartWrap);
+const core = new ChartCore();
+const ui = new ChartUI(core, chartWrap);
+// Provide legacy alias
+const chart = core;
+chart.exportPNG = ui.exportPNG.bind(ui);
 
-// add a small reset button in the top-right corner of the chart card
+// reset button (unchanged)
 const resetBtn = document.createElement('button');
 resetBtn.className = 'chart-reset-btn';
 resetBtn.title = '重置视窗';
-resetBtn.innerHTML = `
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path d="M21 12a9 9 0 1 1-2.6-6.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M21 3v6h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-`;
+resetBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 chartWrap.appendChild(resetBtn);
 resetBtn.addEventListener('click', () => {
-  if (!chart.originalViewSet) { setStatus('尚未记录初始视窗'); return; }
+  if (!chart.originalViewSet) { setStatus('尚未記錄初始視窗'); return; }
   chart.viewMinX = chart.originalViewMin;
   chart.viewMaxX = chart.originalViewMax;
-  chart.resampleInViewAndRender();
+  chart.resampleInView();
   setStatus('视窗已重置');
 });
 
-// tooltip element
+// tooltip element (hover)
 const tooltip = document.createElement('div');
 tooltip.className = 'tooltip';
 document.body.appendChild(tooltip);
@@ -94,36 +94,30 @@ sidebar.onExportPinned = () => {
   if (!blob) { alert('没有任何标记点可导出'); return; }
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'pinned.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 };
-sidebar.onClearAll = () => { chart.seriesList = []; chart.clearPinned(); chart.resampleInViewAndRender(); sidebar.updateLegend([]); pinnedList.setPinned([]); setStatus('已清除所有序列及标记'); };
-sidebar.onTargetChange = (v) => { /* optionally forward to chart */ };
-sidebar.onAutoFit = () => { chart.resampleInViewAndRender(); setStatus('已自动适配像素'); };
-sidebar.onZoomReset = () => { chart.viewMinX = 0; chart.viewMaxX = chart.computeGlobalExtents().max; chart.resampleInViewAndRender(); setStatus('视窗已重置'); };
+sidebar.onClearAll = () => { chart.seriesList = []; chart.clearPinned(); chart.resampleInView(); sidebar.updateLegend([]); pinnedList.setPinned([]); setStatus('已清除所有序列及标记'); };
+sidebar.onTargetChange = (v) => { chart.setSampleTarget ? chart.setSampleTarget(v) : null; };
+sidebar.onAutoFit = () => { chart.resampleInView(); setStatus('已自动适配像素'); };
+sidebar.onZoomReset = () => { chart.viewMinX = 0; chart.viewMaxX = chart.computeGlobalExtents().max; chart.resampleInView(); setStatus('视窗已重置'); };
 sidebar.onResetOriginal = () => {
   if (!chart.originalViewSet) { alert('尚未记录初始视窗'); return; }
-  chart.viewMinX = chart.originalViewMin; chart.viewMaxX = chart.originalViewMax; chart.resampleInViewAndRender(); setStatus('已恢复到初始视窗');
+  chart.viewMinX = chart.originalViewMin; chart.viewMaxX = chart.originalViewMax; chart.resampleInView(); setStatus('已恢复到初始视窗');
 };
-sidebar.onFitAll = () => { const ext = chart.computeGlobalExtents(); chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInViewAndRender(); setStatus('已适配所有数据'); };
+sidebar.onFitAll = () => { const ext = chart.computeGlobalExtents(); chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInView(); setStatus('已适配所有数据'); };
 
 // ensure legend click toggles visibility
 sidebar.legendClick = (series) => {
   series.visible = !series.visible;
-  chart.resampleInViewAndRender();
+  chart.resampleInView();
   sidebar.updateLegend(chart.seriesList);
   setStatus(`${series.name} 已${series.visible ? '显示' : '隐藏'}`);
 };
 
-// wire chart events to UI
+// wire core events to UI
 chart.on('status', (msg) => setStatus(msg));
 chart.on('seriesChanged', (series) => sidebar.updateLegend(series));
-chart.on('pinnedChanged', (pins) => {
-  pinnedList.setPinned(pins);
-});
+chart.on('pinnedChanged', (pins) => pinnedList.setPinned(pins));
 chart.on('resampled', () => {
-  // update pinned tooltips positions via render event
-});
-chart.on('rendered', ({metrics}) => {
-  // update pinned tooltip DOM positions if pinned exist
-  updatePinnedTooltips(metrics);
+  // UI will re-render via core.on('resampled') inside ChartUI
 });
 chart.on('hover', (candidate) => {
   if (!candidate) { tooltip.style.display = 'none'; return; }
@@ -148,10 +142,10 @@ pinnedList.onSelect = (p, ev) => {
   chart._emit('pinnedChanged', chart.pinnedPoints);
 };
 
-// expose keyboard handling
-window.addEventListener('keydown', (ev) => chart.handleKeyEvent(ev), true);
+// expose keyboard handling - forward to UI handler
+window.addEventListener('keydown', (ev) => ui.handleKeyEvent && ui.handleKeyEvent(ev), true);
 
-// Drag & drop upload (on chartWrap)
+// Drag & drop upload (on chartWrap) - unchanged
 let dragCounter = 0;
 const dropOverlay = document.createElement('div');
 dropOverlay.className = 'drop-overlay';
@@ -183,7 +177,7 @@ chartWrap.addEventListener('drop', async (ev) => {
       if (f && f.size > 0) await chart.loadFile(f);
     }
     const ext = chart.computeGlobalExtents();
-    chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.setCanvasSize(); chart.resampleInViewAndRender();
+    chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInView();
     setStatus('上传完成', false);
   } catch (err) {
     console.error('[drop] error', err);
@@ -192,107 +186,7 @@ chartWrap.addEventListener('drop', async (ev) => {
   }
 });
 
-// -----------------------
-// Pinned tooltip management (reliable + clipped by chart container)
-// -----------------------
-
-// Map to reuse DOM nodes: key -> { el, lastSeen }
-const pinnedTooltipMap = new Map();
-function pinnedKey(p) { return `${p.seriesId}::${p.relMicro}`; }
-
-// Remove any old pinned-tooltip nodes that are not inside chart.container
-function cleanupOrphanTooltips() {
-  const all = document.querySelectorAll('.pinned-tooltip');
-  all.forEach(n => {
-    if (!chart.container.contains(n)) n.remove();
-  });
-}
-
-function updatePinnedTooltips(metrics) {
-  cleanupOrphanTooltips();
-  const now = Date.now();
-  // mark all cached as unseen
-  for (const v of pinnedTooltipMap.values()) v._seen = false;
-
-  if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) {
-    // remove all
-    for (const kv of pinnedTooltipMap.entries()) {
-      try { kv[1].el.remove(); } catch(e){}
-    }
-    pinnedTooltipMap.clear();
-    return;
-  }
-
-  const m = metrics || chart.getPlotMetrics();
-  const { margin, plotW, plotH, minXSec, maxXSec, minY, maxY } = m;
-  const canvasRect = chart.canvas.getBoundingClientRect();
-  const containerRect = chart.container.getBoundingClientRect();
-
-  const xToPx = (xMicro) => margin.left + ((xMicro / 1e6 - minXSec) / ((maxXSec - minXSec) || 1)) * plotW;
-  const yToPx = (y) => margin.top + plotH - ((y - minY) / ((maxY - minY) || 1)) * plotH;
-
-  const currentKeys = new Set();
-
-  for (const p of chart.pinnedPoints) {
-    const key = pinnedKey(p);
-    currentKeys.add(key);
-
-    // if series hidden, hide tooltip if exists
-    const s = chart.seriesList.find(x => x.id === p.seriesId && x.visible);
-    if (!s) {
-      const cachedHidden = pinnedTooltipMap.get(key);
-      if (cachedHidden) {
-        cachedHidden.el.style.display = 'none';
-        cachedHidden._seen = true;
-        cachedHidden.lastSeen = now;
-      }
-      continue;
-    }
-
-    const pxCanvas = xToPx(p.relMicro);
-    const pyCanvas = yToPx(p.val);
-
-    // compute position relative to chart.container
-    const left = (pxCanvas / chart.dpr) + (canvasRect.left - containerRect.left);
-    const top = (pyCanvas / chart.dpr) + (canvasRect.top - containerRect.top) - 8;
-
-    let node = pinnedTooltipMap.get(key);
-    if (!node) {
-      const el = document.createElement('div');
-      el.className = 'pinned-tooltip';
-      el.style.position = 'absolute';
-      el.style.pointerEvents = 'auto';
-      chart.container.appendChild(el); // append inside container so overflow:hidden clips it
-      node = { el, lastSeen: now, _seen: true };
-      pinnedTooltipMap.set(key, node);
-    } else {
-      node._seen = true;
-      node.lastSeen = now;
-      node.el.style.display = 'block';
-    }
-
-    // set content & styles
-    node.el.style.left = `${left}px`;
-    node.el.style.top = `${top}px`;
-    node.el.style.background = p.selected ? 'linear-gradient(90deg, rgba(43,108,176,0.95), rgba(43,108,176,0.85))' : (p.color || '#333');
-    node.el.style.color = '#fff';
-    node.el.style.padding = '8px 10px';
-    node.el.style.borderRadius = '8px';
-    node.el.style.fontSize = '12px';
-    node.el.style.zIndex = 9998;
-    node.el.innerHTML = `<div style="font-weight:700">${p.seriesName}</div><div style="opacity:0.95">${(p.relMicro/1e6).toFixed(3)}s — ${p.val}</div>`;
-  }
-
-  // remove cached nodes not present anymore
-  for (const [key, node] of Array.from(pinnedTooltipMap.entries())) {
-    if (!currentKeys.has(key)) {
-      try { node.el.remove(); } catch(e){}
-      pinnedTooltipMap.delete(key);
-    }
-  }
-}
-
-// try load sample files (best-effort)
+// try load sample files (best-effort) - unchanged
 (async function tryLoadSamples() {
   const samples = ['sample1.csv', 'sample2.csv'];
   for (const s of samples) {
@@ -317,11 +211,12 @@ function updatePinnedTooltips(metrics) {
   if (chart.seriesList.length > 0) {
     chart._applyColors();
     const ext = chart.computeGlobalExtents();
-    chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.setCanvasSize(); chart.resampleInViewAndRender(); sidebar.updateLegend(chart.seriesList);
+    chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInView();
+    sidebar.updateLegend(chart.seriesList);
     if (!chart.originalViewSet) { chart.originalViewMin = 0; chart.originalViewMax = ext.max; chart.originalViewSet = true; }
   }
 })();
 
 // initial render
-chart.resampleInViewAndRender();
+chart.resampleInView();
 setStatus('就绪');

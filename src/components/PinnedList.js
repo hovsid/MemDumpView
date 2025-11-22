@@ -1,3 +1,4 @@
+import './PinnedList.css';
 import { formatSI, formatSeconds } from "../utils/format.js";
 
 export class PinnedList {
@@ -13,7 +14,7 @@ export class PinnedList {
     this._render();
   }
 
-  setPinned(pins) { this.pinned = pins.slice(); this._render(); }
+  setPinned(pins) { this.pinned = pins ? pins.slice() : []; this._render(); }
   updateOptions({ filter, groupBy, sortBy } = {}) {
     if (filter !== undefined) this.filter = filter;
     if (groupBy !== undefined) this.groupBy = groupBy;
