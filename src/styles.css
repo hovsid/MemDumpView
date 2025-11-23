@@ -33,10 +33,54 @@ canvas { width:100%; height:100%; border-radius:8px; display:block; cursor:cross
 .card-btn .icon { display:inline-flex; width:18px; height:18px; flex: 0 0 18px; align-items:center; justify-content:center; color:inherit; opacity:0.98; }
 .card-btn:hover { transform: translateY(-3px); box-shadow: var(--shadow-subtle); background: var(--card-hover); color:var(--text); }
 .small { font-size:12px; color:var(--muted); }
-/* NOTE: .pinned-item and .pinned-item.selected styles intentionally removed from global file;
-   these are scoped to src/components/PinnedList.css to avoid duplication. */
+.pinned-item { display:flex; gap:8px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; transition: background 120ms ease, box-shadow 120ms ease; }
+.pinned-item .meta { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.pinned-item.selected { background:linear-gradient(90deg, rgba(43,108,176,0.06), rgba(43,108,176,0.03)); box-shadow: 0 6px 18px rgba(43,108,176,0.06); border-left:3px solid var(--selected-accent); }
 .select-rect { position:absolute; border:1px dashed rgba(43,108,176,0.9); background: rgba(43,108,176,0.08); pointer-events:none; z-index:40; border-radius:6px; }
 .tooltip { z-index:9999; position:fixed; pointer-events:none; display:none; }
+
+/* only the specific box with class .stretch in the sidebar should expand to match the chart height */
+.sidebar > .box.stretch {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* only the card-content inside the stretch box should take remaining space and scroll */
+.sidebar > .box.stretch .card-content,
+.sidebar > .box.stretch .legend {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ensure buttons inside the interaction box (or any stretch box header) do not stretch vertically */
+.sidebar > .box.stretch .card-btn,
+.sidebar > .box.stretch .card-header > .card-btn {
+  flex: 0 0 auto;
+  align-self: stretch; /* keep full width but no vertical stretch */
+}
+
+/* keep other sidebar boxes unaffected (they size to content) */
+.sidebar > .box:not(.stretch) {
+  flex: 0 0 auto;
+}
+
+/* 让右侧带 .stretch 的 box 拉伸（与左侧 .sidebar > .box.stretch 对称） */
+.rightbar > .box.stretch {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 允许其内部内容滚动（与左侧行为对称） */
+.rightbar > .box.stretch .card-content,
+.rightbar > .box.stretch #pinnedListRoot {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 
 /* drop overlay / dragging UX */
 .drop-overlay {

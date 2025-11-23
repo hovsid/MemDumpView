@@ -53,10 +53,50 @@ function setStatus(msg, loading = false) {
 
 // pinned list UI
 const pinnedListContainer = document.createElement('div');
-pinnedListContainer.className = 'box pinned-box';
-pinnedListContainer.innerHTML = `<strong>标记点（Pinned）</strong><div class="small" style="margin-bottom:6px">支持 Shift/Ctrl 多选或按住 Shift 框选</div><div id="pinnedListRoot" style="margin-top:8px"></div>`;
+pinnedListContainer.className = 'box pinned-box stretch';
+pinnedListContainer.innerHTML = `
+  <strong>标记点（Pinned）</strong>
+  <div class="small" style="margin-bottom:6px">支持 Shift/Ctrl 多选或按住 Shift 框选</div>
+  <div style="display:flex; gap:8px; margin-bottom:8px;">
+    <button id="selectAllPinned" class="card-btn" style="padding:8px 10px; width:auto;">全选</button>
+    <button id="deleteSelectedPinned" class="card-btn" style="padding:8px 10px; width:auto; background: #ff5a5f; color:#fff;">删除选中</button>
+  </div>
+  <div id="pinnedListRoot" style="margin-top:8px"></div>
+`;
 rightbar.appendChild(pinnedListContainer);
 const pinnedList = new PinnedList(document.getElementById('pinnedListRoot'));
+
+// bulk action buttons wiring
+const selectAllBtn = pinnedListContainer.querySelector('#selectAllPinned');
+const deleteSelectedBtn = pinnedListContainer.querySelector('#deleteSelectedPinned');
+
+selectAllBtn.addEventListener('click', () => {
+  if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) {
+    setStatus('没有标记点可供选择');
+    return;
+  }
+  for (const p of chart.pinnedPoints) p.selected = true;
+  chart._emit('pinnedChanged', chart.pinnedPoints);
+  setStatus(`已全选 ${chart.pinnedPoints.length} 个标记`);
+});
+
+deleteSelectedBtn.addEventListener('click', () => {
+  if (!chart.pinnedPoints || chart.pinnedPoints.length === 0) {
+    setStatus('没有标记点可供删除');
+    return;
+  }
+  const toDelete = chart.pinnedPoints.filter(p => p.selected);
+  if (toDelete.length === 0) {
+    setStatus('未选中任何标记');
+    return;
+  }
+  for (const p of toDelete) {
+    const idx = chart.pinnedPoints.indexOf(p);
+    if (idx >= 0) chart.pinnedPoints.splice(idx, 1);
+  }
+  chart._emit('pinnedChanged', chart.pinnedPoints);
+  setStatus(`已删除 ${toDelete.length} 个标记`);
+});
 
 // wire sidebar
 sidebar.onOpenFile = async () => {
@@ -133,7 +173,7 @@ chart.on('hover', (candidate) => {
 
 // pinnedList interactions
 pinnedList.onJump = (p) => {
-  chart.jumpToPin(p);
+  chart.jumpToPin ? chart.jumpToPin(p) : null;
   setStatus(`跳转到 ${p.seriesName}`);
 };
 pinnedList.onDelete = (p) => {

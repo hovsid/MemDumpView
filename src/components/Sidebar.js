@@ -39,10 +39,13 @@ export class Sidebar {
         <button id="exportPinned" class="card-btn"><span class="icon">${svgIcon('pinned')}</span><span>导出 标记CSV</span></button>
         <button id="clearAll" class="card-btn"><span class="icon">${svgIcon('clear')}</span><span>清除 所有</span></button>
       </div>
-      <div class="box" aria-label="当前文件">
-        <strong>当前文件</strong>
-        <div id="legend" class="legend" style="margin-top:8px;"></div>
-        <div class="small" style="margin-top:8px">已加载: <span id="seriesCount">0</span></div>
+      <!-- stretch only the card-content inside this box so buttons / header won't be stretched -->
+      <div class="box stretch" aria-label="当前文件">
+        <div class="card-header"><strong>当前文件</strong></div>
+        <div class="card-content" style="padding-top:8px;">
+          <div id="legend" class="legend"></div>
+          <div class="small series-count" style="margin-top:8px">已加载: <span id="seriesCount">0</span></div>
+        </div>
       </div>
     `;
     this._refs = {
