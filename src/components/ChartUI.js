@@ -138,8 +138,9 @@ export class ChartUI {
       this.ctx.fillStyle = s.color; this.ctx.beginPath(); this.ctx.arc(lx, ly, Math.max(2.5 * this.dpr, 2), 0, Math.PI*2); this.ctx.fill();
     }
 
-    // draw pinned points (only for visible series)
+    // draw pinned points (only for visible series and non-hidden pins)
     for (const p of this.core.pinnedPoints) {
+      if (p.hidden) continue; // respect per-pin hidden flag
       const s = this.core.seriesList.find(x => x.id === p.seriesId && x.visible);
       if (!s) continue;
       const px = xToCanvasPx(p.relMicro); const py = yToCanvasPx(p.val);
@@ -192,9 +193,10 @@ export class ChartUI {
 
     for (const p of this.core.pinnedPoints) {
       const key = this._pinnedKey(p);
+      // respect per-pin hidden flag as well as series visibility
       const s = this.core.seriesList.find(x => x.id === p.seriesId && x.visible);
       const cached = this.pinnedTooltipMap.get(key);
-      if (!s) {
+      if (!s || p.hidden) {
         if (cached) { cached.el.style.display = 'none'; cached._seen = true; cached.lastSeen = now; }
         continue;
       }

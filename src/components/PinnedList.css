@@ -10,6 +10,7 @@
   background: rgba(255,255,255,0.98);
   margin-bottom: 6px;
 }
+.pinned-item.hidden { opacity: 0.45; } /* visually indicate a hidden pin */
 .pinned-item .meta { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; overflow:hidden; }
 .pinned-item .title { font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .pinned-item .sub { font-size:12px; color:var(--muted); }
@@ -18,3 +19,13 @@
 .actions { display:flex; gap:8px; }
 .btn-ghost { background: transparent; border:1px solid rgba(15,36,80,0.06); padding:6px 8px; border-radius:8px; cursor:pointer; }
 .btn-danger { background: #ff5a5f; color:#fff; border:none; padding:6px 8px; border-radius:8px; cursor:pointer; }
+
+/* checkbox styling (minimal, align with layout) */
+.pin-checkbox {
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+  margin-right:6px;
+  cursor: pointer;
+  align-self: center;
+}
