@@ -136,7 +136,10 @@ pinnedList.onJump = (p) => {
   chart.jumpToPin(p);
   setStatus(`跳转到 ${p.seriesName}`);
 };
-pinnedList.onDelete = (p) => { chart.removePinned(p); setStatus('已删除标记', false); };
+pinnedList.onDelete = (p) => {
+  chart.removePinned(p);
+  setStatus('已删除标记', false);
+};
 // Selection: toggle p.selected (triggered by checkbox)
 pinnedList.onSelect = (p, ev) => {
   p.selected = !p.selected;
@@ -148,7 +151,13 @@ pinnedList.onHide = (p, ev) => {
   chart._emit('pinnedChanged', chart.pinnedPoints);
   setStatus(`标记 ${p.seriesName} ${(p.relMicro/1e6).toFixed(3)}s 已${p.hidden ? '隐藏' : '显示'}`);
 };
-// expose keyboard handling - forward to UI handler
+// Rename from menu
+pinnedList.onRename = (p, newName) => {
+  // update the display name for this pinned entry (per-pin label)
+  p.seriesName = String(newName || '');
+  chart._emit('pinnedChanged', chart.pinnedPoints);
+  setStatus('已重命名标记');
+};// expose keyboard handling - forward to UI handler
 window.addEventListener('keydown', (ev) => ui.handleKeyEvent && ui.handleKeyEvent(ev), true);
 
 // Drag & drop upload (on chartWrap) - unchanged
