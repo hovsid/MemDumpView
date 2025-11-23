@@ -1,5 +1,5 @@
 import { parseCSVStream } from "../utils/csv.js";
-import { largestTriangleThreeBuckets, binarySearchLeft, binarySearchRight } from "../utils/lttb.js";
+import { largestTriangleThreeBuckets, binarySearchLeft, binarySearchRight, makeColors } from "../utils/lttb.js";
 
 // ChartCore: data + sampling + view + pinned management, no DOM
 export class ChartCore {
@@ -75,9 +75,8 @@ export class ChartCore {
   }
 
   _applyColors() {
-    const colors = [];
-    const n = this.seriesList.length;
-    for (let i=0;i<n;i++){ const hue = Math.round((360 / Math.max(1, n)) * i); colors.push(`hsl(${hue} 70% 45%)`); }
+    // use shared generator to avoid duplicated logic
+    const colors = makeColors(this.seriesList.length);
     this.seriesList.forEach((s,i)=> s.color = s.color || colors[i%colors.length]);
   }
 
@@ -149,6 +148,53 @@ export class ChartCore {
     for (const p of this.pinnedPoints) out += `${JSON.stringify(p.seriesName)},${p.relMicro},${p.val}\n`;
     const blob = new Blob([out], {type: 'text/csv;charset=utf-8;'});
     return blob;
+  }
+
+  /**
+   * Jump/center the view to a pinned point.
+   * - pin: object { seriesId, relMicro, val, seriesName }
+   * Returns true on success, false otherwise.
+   *
+   * NOTE: This implementation intentionally DOES NOT change pin.selected state.
+   * Selection remains under the control of the list/UI; jump only adjusts the view.
+   */
+  jumpToPin(pin) {
+    if (!pin || typeof pin.relMicro !== 'number') return false;
+    const ext = this.computeGlobalExtents();
+    const globalSpan = Math.max(1, ext.max - 0);
+    const currentSpan = Math.max(1, (this.viewMaxX - this.viewMinX) || globalSpan);
+
+    const x = pin.relMicro;
+
+    // if x is already inside current view, keep span but pan if needed to ensure visibility with a small margin
+    if (x >= this.viewMinX && x <= this.viewMaxX) {
+      const margin = Math.max(1, currentSpan * 0.12);
+      let newMin = this.viewMinX, newMax = this.viewMaxX;
+      if (x < this.viewMinX + margin) {
+        newMin = Math.max(0, x - margin);
+        newMax = newMin + currentSpan;
+      } else if (x > this.viewMaxX - margin) {
+        newMax = Math.min(ext.max, x + margin);
+        newMin = Math.max(0, newMax - currentSpan);
+      }
+      this.viewMinX = newMin; this.viewMaxX = newMax;
+      this.resampleInView();
+      this._emit('status', `已跳转并显示标记：${pin.seriesName} ${(pin.relMicro/1e6).toFixed(3)}s`);
+      return true;
+    }
+
+    // otherwise choose a new, conservative span centered on the pin (do not change selection)
+    const newSpan = Math.max(1, Math.min(globalSpan, Math.max(Math.round(currentSpan * 0.5), 1)));
+    let newMin = Math.max(0, x - newSpan / 2);
+    let newMax = newMin + newSpan;
+    if (newMax > ext.max) {
+      newMax = ext.max;
+      newMin = Math.max(0, newMax - newSpan);
+    }
+    this.viewMinX = newMin; this.viewMaxX = newMax;
+    this.resampleInView();
+    this._emit('status', `已跳转到标记：${pin.seriesName} ${(pin.relMicro/1e6).toFixed(3)}s`);
+    return true;
   }
 
   // Utility: provide basic plot metrics without text-measure (UI may refine)

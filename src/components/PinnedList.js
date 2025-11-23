@@ -54,10 +54,16 @@ export class PinnedList {
     actions.appendChild(jumpBtn); actions.appendChild(delBtn);
     el.appendChild(meta); el.appendChild(actions);
 
+    // Important: only treat row clicks as selection when the click did NOT originate from the actions area.
+    // This prevents action buttons from being overridden by the row click handler.
     el.addEventListener('click', (ev) => {
-      ev.stopPropagation();
+      // if the clicked element (or any ancestor up to the row) is inside .actions, ignore here
+      if (ev.target && ev.target.closest && ev.target.closest('.actions')) return;
+      // Delegate selection to the consumer callback (main app will toggle p.selected and emit updates)
       this.onSelect(p, ev);
     });
+
+    // action buttons handle their own clicks and stop propagation to avoid bubbling
     jumpBtn.addEventListener('click', (ev) => { ev.stopPropagation(); this.onJump(p); });
     delBtn.addEventListener('click', (ev) => { ev.stopPropagation(); this.onDelete(p); });
 
