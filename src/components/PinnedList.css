@@ -1,0 +1,20 @@
+/* Styles scoped to the pinned list */
+.pinned-item {
+  display:flex;
+  gap:8px;
+  align-items:center;
+  padding:8px;
+  border-radius:8px;
+  cursor:pointer;
+  border: 1px solid rgba(15,36,80,0.03);
+  background: rgba(255,255,255,0.98);
+  margin-bottom: 6px;
+}
+.pinned-item .meta { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+.pinned-item .title { font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pinned-item .sub { font-size:12px; color:var(--muted); }
+.pinned-item.selected { background:linear-gradient(90deg, rgba(43,108,176,0.06), rgba(43,108,176,0.03)); box-shadow: 0 6px 18px rgba(43,108,176,0.06); border-left:3px solid var(--selected-accent); }
+.pinned-group-header { font-weight:700; margin-top:12px; margin-bottom:6px; color:var(--muted); font-size:13px; }
+.actions { display:flex; gap:8px; }
+.btn-ghost { background: transparent; border:1px solid rgba(15,36,80,0.06); padding:6px 8px; border-radius:8px; cursor:pointer; }
+.btn-danger { background: #ff5a5f; color:#fff; border:none; padding:6px 8px; border-radius:8px; cursor:pointer; }
