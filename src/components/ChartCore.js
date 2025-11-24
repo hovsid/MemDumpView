@@ -1,4 +1,5 @@
 import { parseCSVStream } from "../utils/csv.js";
+import { parseJSONFile, parseJSONText } from "../utils/json.js";
 import { largestTriangleThreeBuckets, binarySearchLeft, binarySearchRight } from "../utils/lttb.js";
 
 // ChartCore: data + sampling + view + pinned management, no DOM
@@ -45,6 +46,62 @@ export class ChartCore {
     this.seriesList.push(meta);
     this._emit('seriesChanged', this.seriesList);
     try {
+      // detect JSON by MIME or extension
+      const isJSON = (file.type === 'application/json') || (/\.json$/i.test(file.name || ''));
+      if (isJSON) {
+        // parse JSON file that may contain one or many series
+        const parsed = await parseJSONFile(file);
+        if (!parsed || !Array.isArray(parsed.series) || parsed.series.length === 0) {
+          // remove placeholder meta we pushed earlier
+          this.seriesList = this.seriesList.filter(s => s !== meta);
+          this._emit('seriesChanged', this.seriesList);
+          this._emit('status', `文件 ${file.name} 无数据`);
+          return;
+        }
+        // remove the placeholder meta (we'll append parsed series)
+        this.seriesList = this.seriesList.filter(s => s !== meta);
+
+        for (const s of parsed.series) {
+          const sid = s.id || (crypto.randomUUID?.() || `s${Date.now()}`);
+          const entry = { id: sid, name: s.name || sid, raw: s.raw || [], rel: [], sampled: [], color:'', visible:true, firstX: s.firstX != null ? s.firstX : 0, meta: s.meta || {} };
+          // ensure raw is an array and contains either [x,y] tuples or object points with .x/.y
+          entry.raw = Array.isArray(entry.raw) ? entry.raw.slice() : [];
+          // compute or normalize firstX
+          if (!isFinite(Number(entry.firstX))) {
+            // find first x in raw
+            let fx = null;
+            for (const r of entry.raw) {
+              if (Array.isArray(r) && isFinite(Number(r[0]))) { fx = Number(r[0]); break; }
+              if (r && typeof r === 'object' && isFinite(Number(r.x))) { fx = Number(r.x); break; }
+            }
+            entry.firstX = fx != null ? Number(fx) : 0;
+          }
+          // build rel array (rel = absX - firstX); support both tuple and object raw entries
+          entry.rel = entry.raw.map(p => {
+            if (Array.isArray(p)) return [p[0] - entry.firstX, p[1]];
+            const absX = Number(p.x != null ? p.x : (p[0] != null ? p[0] : NaN));
+            const y = Number(p.y != null ? p.y : (p[1] != null ? p[1] : NaN));
+            return [absX - entry.firstX, y];
+          });
+          this.seriesList.push(entry);
+          // sync embedded pins for this series (points with non-empty label)
+          this.syncPinnedFromSeries(entry);
+        }
+        this._applyColors();
+        const ext = this.computeGlobalExtents();
+        if (!this.originalViewSet) {
+          this.originalViewMin = 0;
+          this.originalViewMax = ext.max;
+          this.originalViewSet = true;
+        }
+        this.viewMinX = 0; this.viewMaxX = ext.max;
+        this.resampleInView();
+        this._emit('status', `解析完成：${file.name}`);
+        this._emit('seriesChanged', this.seriesList);
+        return;
+      }
+
+      // fallback to CSV parsing for non-JSON files
       const result = await parseCSVStream(file, p => this._emit('status', `解析 ${file.name}: ${Math.round(p*100)}%`));
       meta.headerCols = result.headerCols;
       meta.raw = result.points.slice();
@@ -122,6 +179,54 @@ export class ChartCore {
     this._emit('resampled', null);
   }
 
+  // ----------------- pin synchronization -----------------
+  // Build pinnedPoints entries for points embedded in series.raw that contain a non-empty `label`.
+  // Preserves existing user-added pins (those without sourcePoint) and appends source-driven pins.
+  syncPinnedFromSeries(series) {
+    const seriesArr = series ? [series] : this.seriesList.slice();
+    // preserve non-source pins (user-added)
+    const preserved = this.pinnedPoints.filter(p => !p.sourcePoint);
+    const newPins = preserved.slice(); // start with preserved
+    for (const s of seriesArr) {
+      if (!s.raw || !s.raw.length) continue;
+      for (const pt of s.raw) {
+        // support object points {x,y,label,...} as well as array points [x,y]
+        if (Array.isArray(pt)) continue; // arrays do not carry label metadata
+        if (!pt || typeof pt !== 'object') continue;
+        const label = pt.label != null ? String(pt.label).trim() : '';
+        if (!label) continue;
+        // derive absolute x and relMicro
+        const absX = Number(pt.x != null ? pt.x : (pt[0] != null ? pt[0] : NaN));
+        if (!isFinite(absX)) continue;
+        const relMicro = (s.firstX != null) ? (absX - s.firstX) : absX;
+        const val = Number(pt.y != null ? pt.y : (pt[1] != null ? pt[1] : NaN));
+        if (!isFinite(val)) continue;
+        // avoid dupes: check existing by seriesId + relMicro + val
+        const exists = newPins.find(p => p.seriesId === s.id && p.relMicro === relMicro && p.val === val);
+        if (exists) {
+          // ensure we keep sourcePoint reference if missing
+          if (!exists.sourcePoint) exists.sourcePoint = pt;
+          if (!exists.label && label) exists.label = label;
+          continue;
+        }
+        const entry = {
+          seriesId: s.id,
+          seriesName: s.name,
+          relMicro,
+          val,
+          color: pt.color || s.color,
+          selected: !!pt.selected,
+          label,
+          // keep reference to sourcePoint so renames can update it later
+          sourcePoint: pt
+        };
+        newPins.push(entry);
+      }
+    }
+    this.pinnedPoints = newPins;
+    this._emit('pinnedChanged', this.pinnedPoints);
+  }
+
   // pinned API
   addPinned(seriesId, relMicro, val, color, seriesName) {
     const exists = this.pinnedPoints.find(p => p.seriesId === seriesId && p.relMicro === relMicro && p.val === val);
@@ -146,8 +251,13 @@ export class ChartCore {
   }
   exportPinnedCSV() {
     if (!this.pinnedPoints.length) return null;
-    let out = 'series,rel_us,value\n';
-    for (const p of this.pinnedPoints) out += `${JSON.stringify(p.seriesName)},${p.relMicro},${p.val}\n`;
+    let out = 'series,rel_us,value,label,meta\n';
+    for (const p of this.pinnedPoints) {
+      const label = p.label != null ? JSON.stringify(String(p.label)) : '';
+      const metaObj = (p.sourcePoint && p.sourcePoint.meta) ? p.sourcePoint.meta : (p.meta || null);
+      const meta = metaObj ? JSON.stringify(metaObj) : '';
+      out += `${JSON.stringify(p.seriesName)},${p.relMicro},${p.val},${label},${meta}\n`;
+    }
     const blob = new Blob([out], {type: 'text/csv;charset=utf-8;'});
     return blob;
   }

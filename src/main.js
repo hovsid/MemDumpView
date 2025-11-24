@@ -101,7 +101,10 @@ deleteSelectedBtn.addEventListener('click', () => {
 // wire sidebar
 sidebar.onOpenFile = async () => {
   const fi = document.createElement('input');
-  fi.type = 'file'; fi.accept = '.csv,text/csv,text/plain'; fi.multiple = true; fi.style.display = 'none';
+  fi.type = 'file';
+  // accept CSV and JSON
+  fi.accept = '.csv,text/csv,text/plain,.json,application/json';
+  fi.multiple = true; fi.style.display = 'none';
   fi.addEventListener('change', async (ev) => {
     const files = Array.from(ev.target.files || []);
     if (files.length === 0) { setStatus('未选择文件'); return; }
@@ -112,6 +115,7 @@ sidebar.onOpenFile = async () => {
   fi.click();
   setTimeout(()=> fi.remove(), 3000);
 };
+
 sidebar.onExportPNG = async () => {
   const blob = await chart.exportPNG();
   if (!blob) return;
@@ -191,13 +195,17 @@ pinnedList.onHide = (p, ev) => {
   chart._emit('pinnedChanged', chart.pinnedPoints);
   setStatus(`标记 ${p.seriesName} ${(p.relMicro/1e6).toFixed(3)}s 已${p.hidden ? '隐藏' : '显示'}`);
 };
-// Rename from menu
+// NEW: rename handler — update pin label and propagate to source point if present
 pinnedList.onRename = (p, newName) => {
-  // update the display name for this pinned entry (per-pin label)
-  p.seriesName = String(newName || '');
+  const label = String(newName || '');
+  p.label = label;
+  // if pin is linked to a source point object, update that object's label for export sync
+  if (p.sourcePoint && typeof p.sourcePoint === 'object') {
+    try { p.sourcePoint.label = label; } catch (e) { /* best-effort */ }
+  }
   chart._emit('pinnedChanged', chart.pinnedPoints);
   setStatus('已重命名标记');
-};// expose keyboard handling - forward to UI handler
+};
 window.addEventListener('keydown', (ev) => ui.handleKeyEvent && ui.handleKeyEvent(ev), true);
 
 // Drag & drop upload (on chartWrap) - unchanged

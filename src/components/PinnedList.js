@@ -83,11 +83,14 @@ export class PinnedList {
     const chk = document.createElement('input');
     chk.type = 'checkbox';
     chk.className = 'pin-checkbox';
-    chk.setAttribute('aria-label', `选择 标记 ${p.seriesName} ${(p.relMicro/1e6).toFixed(3)}s`);
+    // aria: show label if present
+    const ariaName = p.label ? `${p.label}` : `${p.seriesName} ${(p.relMicro/1e6).toFixed(3)}s`;
+    chk.setAttribute('aria-label', `选择 标记 ${ariaName}`);
     chk.checked = !!p.selected;
 
     const meta = document.createElement('div'); meta.className='meta';
-    const title = document.createElement('div'); title.className='title'; title.textContent = p.seriesName;
+    // show label if present, otherwise seriesName
+    const title = document.createElement('div'); title.className='title'; title.textContent = p.label ? String(p.label) : p.seriesName;
     const sub = document.createElement('div'); sub.className='sub'; sub.textContent = `${formatSeconds(p.relMicro/1e6)} — ${formatSI(p.val)}`;
     meta.appendChild(title); meta.appendChild(sub);
 
@@ -166,7 +169,8 @@ export class PinnedList {
       // handlers
       const onRenameClick = (e) => {
         e.stopPropagation();
-        const newName = window.prompt('请输入新的标记名称（只影响该标记条目）', p.seriesName || '');
+        const defaultName = p.label ? String(p.label) : (p.seriesName || '');
+        const newName = window.prompt('请输入新的标记名称（只影响该标记条目）', defaultName);
         if (newName !== null) {
           this.onRename(p, newName);
         }
