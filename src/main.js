@@ -102,6 +102,9 @@ deleteSelectedBtn.addEventListener('click', () => {
 sidebar.onOpenFile = async () => {
   const fi = document.createElement('input');
   fi.type = 'file';
+  // accept CSV and JSON files
+  fi.accept = '.csv,text/csv,text/plain,.json,application/json';
+  fi.multiple = true; fi.style.display = 'none';
   // accept CSV and JSON
   fi.accept = '.csv,text/csv,text/plain,.json,application/json';
   fi.multiple = true; fi.style.display = 'none';

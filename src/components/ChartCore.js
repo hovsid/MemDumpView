@@ -1,5 +1,5 @@
 import { parseCSVStream } from "../utils/csv.js";
-import { parseJSONFile, parseJSONText } from "../utils/json.js";
+import { parseJSONFile } from "../utils/json.js";
 import { largestTriangleThreeBuckets, binarySearchLeft, binarySearchRight } from "../utils/lttb.js";
 
 // ChartCore: data + sampling + view + pinned management, no DOM
@@ -38,53 +38,101 @@ export class ChartCore {
     this.resampleInView();
   }
 
+  // ---------- helpers ----------
+  _toMicroseconds(rawX) {
+    if (rawX == null) return NaN;
+    if (typeof rawX === 'string') {
+      const ms = Date.parse(rawX);
+      return isNaN(ms) ? NaN : Math.round(ms * 1000);
+    }
+    if (typeof rawX === 'number') {
+      const abs = Math.abs(rawX);
+      if (abs < 1e13) return Math.round(rawX * 1000);
+      return Math.round(rawX);
+    }
+    return NaN;
+  }
+
+  _absXOf(rawPoint) {
+    if (Array.isArray(rawPoint)) return Number(rawPoint[0]);
+    if (rawPoint && typeof rawPoint === 'object') return this._toMicroseconds(rawPoint.x != null ? rawPoint.x : (rawPoint[0] != null ? rawPoint[0] : undefined));
+    return NaN;
+  }
+
   // ---------- file loading ----------
   async loadFile(file) {
     this._emit('status', `解析 ${file.name}...`);
-    const id = crypto.randomUUID?.() || `s${Date.now()}`;
-    const meta = { id, name: file.name || 'file', raw: [], rel: [], sampled: [], color: '', visible: true, firstX: null, headerCols: null };
-    this.seriesList.push(meta);
+    // placeholder meta in case parse fails early (keeps UI stable)
+    const placeholderId = crypto.randomUUID?.() || `s${Date.now()}`;
+    const placeholder = { id: placeholderId, name: file.name || 'file', raw: [], rel: [], sampled: [], color: '', visible: true, firstX: null, headerCols: null };
+    this.seriesList.push(placeholder);
     this._emit('seriesChanged', this.seriesList);
     try {
-      // detect JSON by MIME or extension
       const isJSON = (file.type === 'application/json') || (/\.json$/i.test(file.name || ''));
       if (isJSON) {
-        // parse JSON file that may contain one or many series
         const parsed = await parseJSONFile(file);
         if (!parsed || !Array.isArray(parsed.series) || parsed.series.length === 0) {
-          // remove placeholder meta we pushed earlier
-          this.seriesList = this.seriesList.filter(s => s !== meta);
+          // remove placeholder
+          this.seriesList = this.seriesList.filter(s => s !== placeholder);
           this._emit('seriesChanged', this.seriesList);
           this._emit('status', `文件 ${file.name} 无数据`);
           return;
         }
-        // remove the placeholder meta (we'll append parsed series)
-        this.seriesList = this.seriesList.filter(s => s !== meta);
-
+        // remove placeholder and append parsed series entries
+        this.seriesList = this.seriesList.filter(s => s !== placeholder);
         for (const s of parsed.series) {
           const sid = s.id || (crypto.randomUUID?.() || `s${Date.now()}`);
-          const entry = { id: sid, name: s.name || sid, raw: s.raw || [], rel: [], sampled: [], color:'', visible:true, firstX: s.firstX != null ? s.firstX : 0, meta: s.meta || {} };
-          // ensure raw is an array and contains either [x,y] tuples or object points with .x/.y
-          entry.raw = Array.isArray(entry.raw) ? entry.raw.slice() : [];
-          // compute or normalize firstX
+          const entry = {
+            id: sid,
+            name: s.name || sid,
+            raw: Array.isArray(s.raw) ? s.raw.slice() : [],
+            rel: [],
+            sampled: [],
+            color: '',
+            visible: true,
+            firstX: isFinite(Number(s.firstX)) ? Number(s.firstX) : null,
+            meta: s.meta || {}
+          };
+          // Normalize object raw points: ensure object.x is numeric absolute microseconds
+          for (let i = 0; i < entry.raw.length; i++) {
+            const rp = entry.raw[i];
+            if (rp && typeof rp === 'object' && !Array.isArray(rp)) {
+              const abs = this._toMicroseconds(rp.x != null ? rp.x : (rp[0] != null ? rp[0] : undefined));
+              if (isFinite(abs)) {
+                try { rp.x = abs; } catch(e) {}
+              } else {
+                rp._invalid_time = true;
+              }
+            }
+          }
+          entry.raw = entry.raw.filter(rp => !(rp && rp._invalid_time));
+          // compute firstX if not provided
           if (!isFinite(Number(entry.firstX))) {
-            // find first x in raw
             let fx = null;
             for (const r of entry.raw) {
-              if (Array.isArray(r) && isFinite(Number(r[0]))) { fx = Number(r[0]); break; }
-              if (r && typeof r === 'object' && isFinite(Number(r.x))) { fx = Number(r.x); break; }
+              const abs = this._absXOf(r);
+              if (isFinite(abs)) { fx = abs; break; }
             }
-            entry.firstX = fx != null ? Number(fx) : 0;
+            entry.firstX = fx != null ? fx : 0;
           }
-          // build rel array (rel = absX - firstX); support both tuple and object raw entries
-          entry.rel = entry.raw.map(p => {
-            if (Array.isArray(p)) return [p[0] - entry.firstX, p[1]];
-            const absX = Number(p.x != null ? p.x : (p[0] != null ? p[0] : NaN));
-            const y = Number(p.y != null ? p.y : (p[1] != null ? p[1] : NaN));
-            return [absX - entry.firstX, y];
-          });
+          // build rel array
+          entry.rel = [];
+          for (const p of entry.raw) {
+            if (Array.isArray(p)) {
+              const abs = Number(p[0]);
+              const y = Number(p[1]);
+              if (!isFinite(abs) || !isFinite(y)) continue;
+              entry.rel.push([abs - entry.firstX, y]);
+            } else if (p && typeof p === 'object') {
+              const abs = this._absXOf(p);
+              const y = Number(p.y != null ? p.y : (p[1] != null ? p[1] : NaN));
+              if (!isFinite(abs) || !isFinite(y)) continue;
+              try { p.x = abs; } catch(e) {}
+              entry.rel.push([abs - entry.firstX, y]);
+            }
+          }
           this.seriesList.push(entry);
-          // sync embedded pins for this series (points with non-empty label)
+          // sync embedded pins (label-bearing object points)
           this.syncPinnedFromSeries(entry);
         }
         this._applyColors();
@@ -101,19 +149,29 @@ export class ChartCore {
         return;
       }
 
-      // fallback to CSV parsing for non-JSON files
+      // CSV path (existing behavior)
       const result = await parseCSVStream(file, p => this._emit('status', `解析 ${file.name}: ${Math.round(p*100)}%`));
-      meta.headerCols = result.headerCols;
-      meta.raw = result.points.slice();
-      meta.raw.sort((a,b)=>a[0]-b[0]);
-      if (!meta.raw.length) {
-        this.seriesList = this.seriesList.filter(s => s !== meta);
+      placeholder.headerCols = result.headerCols;
+      placeholder.raw = result.points.slice();
+
+      // normalize CSV numeric raw array (already [x,y]), but allow future object handling if needed
+      placeholder.raw.sort((a,b)=> {
+        const ax = Array.isArray(a) ? Number(a[0]) : this._absXOf(a);
+        const bx = Array.isArray(b) ? Number(b[0]) : this._absXOf(b);
+        return (isFinite(ax) ? ax : 0) - (isFinite(bx) ? bx : 0);
+      });
+
+      if (!placeholder.raw.length) {
+        this.seriesList = this.seriesList.filter(s => s !== placeholder);
         this._emit('seriesChanged', this.seriesList);
         this._emit('status', `文件 ${file.name} 无数据`);
         return;
       }
-      meta.firstX = meta.raw[0][0];
-      meta.rel = meta.raw.map(p => [p[0] - meta.firstX, p[1]]);
+
+      // compute firstX and rel (CSV raw entries are arrays)
+      placeholder.firstX = placeholder.raw[0][0];
+      placeholder.rel = placeholder.raw.map(p => [p[0] - placeholder.firstX, p[1]]);
+
       this._applyColors();
       const ext = this.computeGlobalExtents();
       if (!this.originalViewSet) {
@@ -127,6 +185,9 @@ export class ChartCore {
       this._emit('seriesChanged', this.seriesList);
     } catch (err) {
       console.error(err);
+      // remove placeholder if still present
+      this.seriesList = this.seriesList.filter(s => s !== placeholder);
+      this._emit('seriesChanged', this.seriesList);
       this._emit('status', `解析失败：${err && err.message ? err.message : err}`);
     }
   }
@@ -154,7 +215,6 @@ export class ChartCore {
   resampleInView() {
     if (this.seriesList.length === 0) { this._emit('resampled'); return; }
     const marginBase = {left: 70, right: 18, top: 18, bottom: 48}; // logical px (UI will scale by dpr)
-    // Use sampleTarget set on core
     const globalTarget = Math.max(10, Math.round(this.sampleTarget || 1000));
 
     const ext = this.computeGlobalExtents();
@@ -170,8 +230,6 @@ export class ChartCore {
       const lo = Math.max(0, binarySearchLeft(arr, this.viewMinX));
       const hi = Math.min(arr.length, binarySearchRight(arr, this.viewMaxX));
       const windowArr = arr.slice(Math.max(0, lo - 1), Math.min(arr.length, hi + 1));
-      // for approximate finalTarget we need an approximate pixel-based target, but core doesn't know canvas width.
-      // We'll be conservative and use globalTarget here; UI may choose to further downsample if needed.
       if (windowArr.length <= globalTarget) s.sampled = windowArr;
       else s.sampled = largestTriangleThreeBuckets(windowArr, globalTarget);
     }
@@ -184,27 +242,22 @@ export class ChartCore {
   // Preserves existing user-added pins (those without sourcePoint) and appends source-driven pins.
   syncPinnedFromSeries(series) {
     const seriesArr = series ? [series] : this.seriesList.slice();
-    // preserve non-source pins (user-added)
     const preserved = this.pinnedPoints.filter(p => !p.sourcePoint);
-    const newPins = preserved.slice(); // start with preserved
+    const newPins = preserved.slice();
     for (const s of seriesArr) {
       if (!s.raw || !s.raw.length) continue;
       for (const pt of s.raw) {
-        // support object points {x,y,label,...} as well as array points [x,y]
-        if (Array.isArray(pt)) continue; // arrays do not carry label metadata
+        if (Array.isArray(pt)) continue;
         if (!pt || typeof pt !== 'object') continue;
         const label = pt.label != null ? String(pt.label).trim() : '';
         if (!label) continue;
-        // derive absolute x and relMicro
         const absX = Number(pt.x != null ? pt.x : (pt[0] != null ? pt[0] : NaN));
         if (!isFinite(absX)) continue;
         const relMicro = (s.firstX != null) ? (absX - s.firstX) : absX;
         const val = Number(pt.y != null ? pt.y : (pt[1] != null ? pt[1] : NaN));
         if (!isFinite(val)) continue;
-        // avoid dupes: check existing by seriesId + relMicro + val
         const exists = newPins.find(p => p.seriesId === s.id && p.relMicro === relMicro && p.val === val);
         if (exists) {
-          // ensure we keep sourcePoint reference if missing
           if (!exists.sourcePoint) exists.sourcePoint = pt;
           if (!exists.label && label) exists.label = label;
           continue;
@@ -217,7 +270,6 @@ export class ChartCore {
           color: pt.color || s.color,
           selected: !!pt.selected,
           label,
-          // keep reference to sourcePoint so renames can update it later
           sourcePoint: pt
         };
         newPins.push(entry);
@@ -227,16 +279,15 @@ export class ChartCore {
     this._emit('pinnedChanged', this.pinnedPoints);
   }
 
-  // pinned API
+  // pinned API (minimal, unchanged)
   addPinned(seriesId, relMicro, val, color, seriesName) {
     const exists = this.pinnedPoints.find(p => p.seriesId === seriesId && p.relMicro === relMicro && p.val === val);
     if (exists) return exists;
-    // add hidden:false so individual pins can be hidden independently of series visibility
     const entry = { seriesId, seriesName, relMicro, val, color, selected:false, hidden:false };
     this.pinnedPoints.push(entry);
     this._emit('pinnedChanged', this.pinnedPoints);
     this._emit('status', `标记点已添加：${seriesName} ${(relMicro/1e6).toFixed(3)}s`);
-    this._emit('resampled', null); // keep UI in sync if needed
+    this._emit('resampled', null);
     return entry;
   }
   removePinned(entry) {
@@ -249,6 +300,7 @@ export class ChartCore {
     this.pinnedPoints = [];
     this._emit('pinnedChanged', this.pinnedPoints);
   }
+
   exportPinnedCSV() {
     if (!this.pinnedPoints.length) return null;
     let out = 'series,rel_us,value,label,meta\n';
@@ -258,12 +310,10 @@ export class ChartCore {
       const meta = metaObj ? JSON.stringify(metaObj) : '';
       out += `${JSON.stringify(p.seriesName)},${p.relMicro},${p.val},${label},${meta}\n`;
     }
-    const blob = new Blob([out], {type: 'text/csv;charset=utf-8;'});
-    return blob;
+    return new Blob([out], {type: 'text/csv;charset=utf-8;'});
   }
 
-  // Utility: provide basic plot metrics without text-measure (UI may refine)
-  // canvasWidth/Height are device pixels (already scaled by dpr)
+  // Utilities...
   getBasePlotMetrics(canvasWidth, canvasHeight, dpr) {
     const W = canvasWidth, H = canvasHeight;
     const marginBase = {left: 70 * dpr, right: 18 * dpr, top: 18 * dpr, bottom: 48 * dpr};
@@ -285,7 +335,6 @@ export class ChartCore {
     }
     const yPadTop = (maxY - minY) * 0.06 || 1;
     maxY = maxY + yPadTop; minY = 0;
-    // return margins as base; UI may compute left margin considering text widths
     return { W, H, marginBase, plotW: W - marginBase.left - marginBase.right, plotH, minX, maxX, minY, maxY, minXSec: minX / 1e6, maxXSec: maxX / 1e6 };
   }
 }
