@@ -81,7 +81,7 @@ export class Sidebar {
       item.style.alignItems = 'center';
       item.style.gap = '8px';
       item.style.minWidth = '0';
-      item.innerHTML = `<span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:${s.color||colors[i]}"></span><span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>`;
+      item.innerHTML = `<span style="width:14px;height:14px;display:inline-block;border-radius:3px;background:${s.color || colors[i]}"></span><span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>`;
 
       // click toggles visibility via provided callback (main app should set sidebar.legendClick)
       item.addEventListener('click', (ev) => {

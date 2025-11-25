@@ -6,7 +6,6 @@ import { formatSeconds } from "./utils/format.js";
 
 const app = document.getElementById('app');
 app.innerHTML = `
-  <div class="controls"><div class="left small">拖拽上传或使用左侧“交互”面板打开文件。</div><div style="margin-left:auto" class="small">悬停显示点、点击固定浮窗、滚轮缩放、拖拽平移、双击复位</div></div>
   <div id="status" class="box" style="display:flex;align-items:center;gap:8px;">就绪</div>
   <div class="main">
     <div id="sidebar" class="sidebar"></div>
@@ -251,37 +250,6 @@ chartWrap.addEventListener('drop', async (ev) => {
     alert('上传失败: ' + (err && err.message ? err.message : err));
   }
 });
-
-// try load sample files (best-effort) - unchanged
-(async function tryLoadSamples() {
-  const samples = ['sample1.csv', 'sample2.csv'];
-  for (const s of samples) {
-    try {
-      const resp = await fetch(s);
-      if (!resp.ok) continue;
-      const text = await resp.text();
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      const parsed = [];
-      for (const line of lines) {
-        const parts = line.split(',').map(x => x.trim()); const x = Number(parts[0]); const y = Number(parts[1]);
-        if (isFinite(x) && isFinite(y)) parsed.push([x,y]);
-      }
-      if (parsed.length === 0) continue;
-      const id = crypto.randomUUID?.() || `s${Date.now()}${Math.random()}`;
-      parsed.sort((a,b)=>a[0]-b[0]);
-      const firstX = parsed[0][0];
-      const rel = parsed.map(p=>[p[0]-firstX, p[1]]);
-      chart.seriesList.push({id, name:s, raw: parsed, rel, sampled: [], color:'', visible:true, firstX});
-    } catch(e){}
-  }
-  if (chart.seriesList.length > 0) {
-    chart._applyColors();
-    const ext = chart.computeGlobalExtents();
-    chart.viewMinX = 0; chart.viewMaxX = ext.max; chart.resampleInView();
-    sidebar.updateLegend(chart.seriesList);
-    if (!chart.originalViewSet) { chart.originalViewMin = 0; chart.originalViewMax = ext.max; chart.originalViewSet = true; }
-  }
-})();
 
 // initial render
 chart.resampleInView();
