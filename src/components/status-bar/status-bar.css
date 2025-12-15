@@ -1,0 +1,27 @@
+.status-bar {
+  min-height: 30px;
+  padding: 8px 16px;
+  background: var(--panel, #fff);
+  border-radius: 8px;
+  border: 1px solid var(--card-border, #e6eef9);
+  font-size: 15px;
+  color: var(--text, #222);
+  box-shadow: 0 0 8px rgba(10,20,40,0.04);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+}
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #eceef2;
+  border-top: 3px solid #2b83e6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  0% {transform: rotate(0deg);}
+  100% {transform: rotate(360deg);}
+}
