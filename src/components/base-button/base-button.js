@@ -18,10 +18,6 @@ export class BaseButton extends HTMLElement {
   }
   connectedCallback() {
     this._update();
-    this.shadowRoot.querySelector('button').addEventListener('click', (e) => {
-      if (this.disabled) return;
-      this.dispatchEvent(new Event('click', { bubbles: true }));
-    });
   }
   attributeChangedCallback() { this._update(); }
   set disabled(val) {
