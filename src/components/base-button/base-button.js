@@ -1,4 +1,4 @@
-import './base-button.css';
+import style from './base-button.css?raw';
 
 // <base-button type="primary" disabled>
 //   <span slot="icon"><svg>...</svg></span>
@@ -11,9 +11,9 @@ export class BaseButton extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this.shadowRoot.innerHTML = `
       <button class="base-btn">
-        <span class="icon"><slot name="icon"></slot></span>
         <span class="label"><slot></slot></span>
       </button>
+      <style>${style}</style>
     `;
   }
   connectedCallback() {

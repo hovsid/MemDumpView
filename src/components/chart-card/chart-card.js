@@ -1,5 +1,5 @@
 import '../base-card/base-card.js';
-import './chart-card.css';
+import style from './chart-card.css?raw';
 
 export class ChartCard extends HTMLElement {
   constructor() {
@@ -9,6 +9,7 @@ export class ChartCard extends HTMLElement {
       <base-card title="图表">
         <!--canvas or chart placeholder slot-->
       </base-card>
+      <style>${style}</style>
     `;
   }
 }

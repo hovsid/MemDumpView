@@ -45,8 +45,9 @@ class InputHandler {
     } else {
       throw new Error('仅支持txt或json格式输入');
     }
-    // 写入数据模型
-    dataModel.setSequences(sequences);
+    // === 关键改动：累加到原有序列，而非覆盖 ===
+    const current = dataModel.getSequences() || [];
+    dataModel.setSequences([...current, ...sequences]);
   }
 }
 export const inputHandler = new InputHandler();

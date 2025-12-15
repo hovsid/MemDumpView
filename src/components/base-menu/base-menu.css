@@ -1,0 +1,24 @@
+.base-menu {
+  background: var(--panel, #fff);
+  border: 1px solid var(--card-border, #e6eef9);
+  box-shadow: 0 6px 24px rgba(20,30,60,0.10);
+  border-radius: 10px;
+  min-width: 120px;
+  padding: 8px 0;
+  z-index: 99999;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.base-menu base-button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 10px 14px;
+}
+.base-menu base-button.danger {
+  color: #b13a3a;
+}

@@ -1,4 +1,4 @@
-import './status-bar.css';
+import style from './status-bar.css?raw';
 
 export class StatusBar extends HTMLElement {
   static get observedAttributes() { return ['message', 'loading']; }
@@ -10,6 +10,7 @@ export class StatusBar extends HTMLElement {
         <span id="msg"></span>
         <span id="spinner" class="spinner" style="display:none;"></span>
       </div>
+      <style>${style}</style>
     `;
   }
 

@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
   app.innerHTML = `
     <div class="main-layout">
       <div class="main-left">
-        <interaction-card id="interactionCard"></interaction-card>
         <file-card id="fileCard"></file-card>
       </div>
       <div class="main-center">

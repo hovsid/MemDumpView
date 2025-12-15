@@ -1,4 +1,4 @@
-import './base-card.css';
+import style from './base-card.css?raw';
 
 /**
  * <base-card title="xxx">
@@ -17,6 +17,7 @@ export class BaseCard extends HTMLElement {
         <div class="card-content"><slot></slot></div>
         <div class="card-footer"><slot name="footer"></slot></div>
       </div>
+      <style>${style}</style>
     `;
   }
   attributeChangedCallback(name, oldVal, newVal) {
