@@ -1,17 +1,12 @@
 import style from './status-bar.css?raw';
+import template from './status-bar.html?raw';
 
 export class StatusBar extends HTMLElement {
   static get observedAttributes() { return ['message', 'loading']; }
   constructor() {
     super();
     this.attachShadow({mode: 'open'});
-    this.shadowRoot.innerHTML = `
-      <div class="status-bar">
-        <span id="msg"></span>
-        <span id="spinner" class="spinner" style="display:none;"></span>
-      </div>
-      <style>${style}</style>
-    `;
+    this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
   }
 
   // 属性变化响应

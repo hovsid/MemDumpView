@@ -1,22 +1,12 @@
 import style from './item-row.css?raw';
+import template from './item-row.html?raw';
 import '../base-menu/base-menu.js'
 
 export class ItemRow extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this.shadowRoot.innerHTML = `
-      <div class="item-row">
-        <input type="checkbox" class="item-checkbox">
-        <span class="item-label"></span>
-        <base-button class="menu-btn" type="secondary" title="更多操作">
-          <svg class="icon" width="16" height="16" fill="currentColor" viewBox="0 0 18 18">
-            <circle cx="9" cy="4" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="9" cy="14" r="1.3"/>
-          </svg>
-        </base-button>
-      </div>
-      <style>${style}</style>
-    `;
+    this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
     this.$row = this.shadowRoot.querySelector('.item-row');
     this.$checkbox = this.shadowRoot.querySelector('.item-checkbox');
     this.$label = this.shadowRoot.querySelector('.item-label');

@@ -1,4 +1,5 @@
 import style from './base-card.css?raw';
+import template from './base-card.html?raw'
 
 /**
  * <base-card title="xxx">
@@ -11,14 +12,7 @@ export class BaseCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({mode: 'open'});
-    this.shadowRoot.innerHTML = `
-      <div class="card-box">
-        <div class="card-header"></div>
-        <div class="card-content"><slot></slot></div>
-        <div class="card-footer"><slot name="footer"></slot></div>
-      </div>
-      <style>${style}</style>
-    `;
+    this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
   }
   attributeChangedCallback(name, oldVal, newVal) {
     if (name === 'title' && this.shadowRoot) {

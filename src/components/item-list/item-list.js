@@ -1,22 +1,12 @@
 import style from './item-list.css?raw';
+import template from './item-list.html?raw';
 import './item-row.js';
 
 export class ItemList extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({mode:'open'});
-    this.shadowRoot.innerHTML = `
-      <div class="item-list-box">
-        <div class="item-list-header">
-          <slot name="header"></slot>
-        </div>
-        <div class="item-list-list" id="list"></div>
-        <div class="item-list-footer">
-          <slot name="footer"></slot>
-        </div>
-      </div>
-      <style>${style}</style>
-    `;
+    this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
     this._items = [];
     this._menuConfig = [];
     this._selected = new Set();

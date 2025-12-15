@@ -1,3 +1,4 @@
+import template from './base-button.html?raw';
 import style from './base-button.css?raw';
 
 // <base-button type="primary" disabled>
@@ -9,12 +10,7 @@ export class BaseButton extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this.shadowRoot.innerHTML = `
-      <button class="base-btn">
-        <span class="label"><slot></slot></span>
-      </button>
-      <style>${style}</style>
-    `;
+    this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
   }
   connectedCallback() {
     this._update();
