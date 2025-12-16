@@ -1,4 +1,4 @@
-import { dataModel } from './data-model.js';
+import { dataModel, SequenceItem } from './data-model.js';
 
 // TXT 格式：每行 x, y, label, meta（label和meta可省略）
 // JSON 格式：完整的 { sequences: [ { name, nodes:[{x,y,label,meta}] } ] } 可直接用
@@ -24,7 +24,7 @@ class InputHandler {
     } else if (ext === 'txt') {
       // TXT: 每个文件为1个序列，其name为文件名，nodes为逐行
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const sequence = { name: file.name.replace(/\.txt$/i,''), nodes: [] };
+      const sequence = { label: file.name.replace(/\.txt$/i,''), nodes: [] };
       for(const line of lines) {
         if (!line) continue;
         // 允许最后一项meta有逗号
@@ -45,9 +45,9 @@ class InputHandler {
     } else {
       throw new Error('仅支持txt或json格式输入');
     }
-    // === 关键改动：累加到原有序列，而非覆盖 ===
-    const current = dataModel.getSequences() || [];
-    dataModel.setSequences([...current, ...sequences]);
+    sequences.forEach(sequence => {
+        dataModel.addSequence(new SequenceItem(sequence));
+    });
   }
 }
 export const inputHandler = new InputHandler();

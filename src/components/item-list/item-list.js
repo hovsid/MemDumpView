@@ -7,18 +7,21 @@ export class ItemList extends HTMLElement {
     super();
     this.attachShadow({mode:'open'});
     this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
-    this._items = [];
+    this._list = null;   // BaseList 实例
     this._menuConfig = [];
     this._selected = new Set();
     this._listEl = this.shadowRoot.getElementById('list');
   }
 
-  set items(arr) {
-    this._items = arr || [];
-    this._ensureKeySet();
+  set list(listObj) {
+    if (this._list === listObj) return;
+    this._list = listObj;
+    if (this._list && this._list.on) {
+      this._list.on('changed', () => this.renderList());
+    }
     this.renderList();
   }
-  get items() { return this._items; }
+  get list() { return this._list; }
 
   set menuConfig(menus) {
     this._menuConfig = menus || [];
@@ -32,23 +35,33 @@ export class ItemList extends HTMLElement {
     this.renderList();
   }
 
-  _ensureKeySet() {
-    for (const item of this._items) {
-      if (item._key != null) continue;
-      if (item.id !== undefined) item._key = item.id;
-      else if (item.name !== undefined) item._key = item.name;
-      else item._key = Math.random().toString(36).slice(2, 9);
-    }
-  }
-
   renderList() {
+    if (!this._list) return;
+    const items = this._list.getItems();
     const root = this._listEl;
     root.innerHTML = '';
-    for (const item of this._items) {
+    for (const item of items) {
       const row = document.createElement('item-row');
       row.item = item;
       row.checked = this._selected.has(item._key);
       row.menuConfig = this._menuConfig;
+      // 删除：由item-row冒泡。此处负责实际删除
+      row.addEventListener('item-delete', e => {
+        this._list.remove(item);
+        this.renderList();
+      });
+      row.addEventListener('item-toggle', e => {
+        // 默认已写入item; 这里 emit changed 以保证外部/图表响应
+        this._list._emit && this._list._emit('changed', this._list.getItems());
+        this.renderList();
+      });
+      // 重命名
+      row.addEventListener('item-renamed', e => {
+        // 默认已写入item; 这里 emit changed 以保证外部/图表响应
+        this._list._emit && this._list._emit('changed', this._list.getItems());
+        this.renderList();
+      });
+      // 选中 toggle
       row.addEventListener('item-check-toggle', e => {
         const { item: ritem, checked } = e.detail || {};
         if (checked) this._selected.add(ritem._key);
@@ -56,8 +69,8 @@ export class ItemList extends HTMLElement {
         this.dispatchEvent(new CustomEvent('selection-change', { detail: this.selected }));
         this.renderList();
       });
+      // 由item-row放行的菜单事件
       row.addEventListener('item-menu-action', e => {
-        // 如果需要，可以在此派发自定义事件给 file-card/card
         this.dispatchEvent(new CustomEvent('menu-action', { detail: { ...e.detail } }));
       });
       root.appendChild(row);

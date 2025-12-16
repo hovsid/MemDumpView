@@ -6,7 +6,7 @@ import { inputHandler } from '../../model/input-handler.js';
 import style from './file-card.css?raw';
 import template from './file-card.html?raw';
 
-const uploadIcon = `<svg class="icon" width="18" height="18" fill="none" viewBox="0 0 18 18"><rect x="8" y="3" width="2" height="12" rx="1"/><rect x="3" y="8" width="12" height="2" rx="1"/></svg>`;
+const uploadIcon = ``;
 
 export class FileCard extends HTMLElement {
   constructor() {
@@ -45,31 +45,17 @@ export class FileCard extends HTMLElement {
     });
     itemList.menuConfig = [
       {
-        label: '重命名',
-        callback: (seq) => {
-          const val = prompt('输入新文件名', seq.name);
-          if (val && val !== seq.name) { seq.name = val; this._setStatus(`已重命名为${val}`); dataModel._emit && dataModel._emit('sequences:changed', dataModel.getSequences()); }
-        }
-      },
-      {
         label: '导出为 JSON',
         callback: (seq) => {
-          const out = { name: seq.name, nodes: seq.nodes ? seq.nodes.slice() : [] };
-          const blob = new Blob([JSON.stringify({sequences:[out]}, null, 2)], {type:'application/json'});
+          // 此回调在 item-row 中被触发
+          const out = { label: seq.label, nodes: seq.nodes ? seq.nodes.slice() : [] };
+          const blob = new Blob([JSON.stringify({ sequences: [out] }, null, 2)], { type: 'application/json' });
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = seq.name + '.json';
+          a.download = (seq.label || '序列') + '.json';
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(() => URL.revokeObjectURL(a.href), 1000);
           this._setStatus('已导出');
-        }
-      },
-      {
-        label: '删除文件',
-        callback: (seq) => {
-          let seqArr = dataModel.getSequences().filter(s => s !== seq && s.name !== seq.name);
-          dataModel.setSequences(seqArr);
-          this._setStatus('已删除');
         }
       }
     ];
@@ -77,8 +63,7 @@ export class FileCard extends HTMLElement {
 
   _updateList() {
     const itemList = this.shadowRoot.getElementById('itemList');
-    const arr = dataModel.getSequences ? dataModel.getSequences() : [];
-    itemList.items = arr;
+    itemList.list = dataModel.sequenceList;
   }
 
   _setStatus(msg, loading = false) {

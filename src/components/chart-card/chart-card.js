@@ -3,7 +3,7 @@ import '../base-button/base-button.js';
 import template from './chart-card.html?raw';
 import style from './chart-card.css?raw';
 import { dataModel } from '../../model/data-model.js';
-import { makeColors, largestTriangleThreeBuckets } from '../../utils/lttb.js';
+import { makeColors } from '../../utils/lttb.js';
 import { formatSI, formatSeconds } from '../../utils/format.js';
 
 export class ChartCard extends HTMLElement {
@@ -13,7 +13,6 @@ export class ChartCard extends HTMLElement {
     this.shadowRoot.innerHTML = `${template}<style>${style}</style>`;
     this.canvas = this.shadowRoot.getElementById('chart-canvas');
     this.tooltip = this.shadowRoot.getElementById('chart-tooltip');
-    this.sampleTarget = 1200;
     this.viewMinX = 0;
     this.viewMaxX = 1;
     this._seriesState = [];
@@ -33,11 +32,15 @@ export class ChartCard extends HTMLElement {
     const seqs = dataModel.getSequences() || [];
     let min = Infinity, max = -Infinity;
     for (const seq of seqs) {
-      if (!Array.isArray(seq.nodes) || !seq.nodes.length) continue;
-      const firstX = seq.nodes[0].x;
-      const relXmax = seq.nodes[seq.nodes.length-1].x - firstX;
+      if (!seq.nodes || typeof seq.nodes.getItems !== 'function') continue;
+      const nodes = seq.nodes.getItems();
+      if (!nodes.length) continue;
+      let xs = nodes.map(n => n.x).filter(x => isFinite(x));
+      if (!xs.length) continue;
+      const firstX = Math.min(...xs);
+      const lastX = Math.max(...xs);
       min = Math.min(min, 0);
-      max = Math.max(max, relXmax);
+      max = Math.max(max, lastX - firstX);
     }
     if (!isFinite(min) || !isFinite(max) || min === max) { min = 0; max = min + 1; }
     this.viewMinX = min;
@@ -54,11 +57,15 @@ export class ChartCard extends HTMLElement {
   _initViewRange(seqs) {
     let min = Infinity, max = -Infinity;
     for (const seq of seqs) {
-      if (!Array.isArray(seq.nodes) || !seq.nodes.length) continue;
-      const firstX = seq.nodes[0].x;
-      const relXmax = seq.nodes[seq.nodes.length-1].x - firstX;
+      if (!seq.nodes || typeof seq.nodes.getItems !== 'function') continue;
+      const nodes = seq.nodes.getItems();
+      if (!nodes.length) continue;
+      let xs = nodes.map(n => n.x).filter(x => isFinite(x));
+      if (!xs.length) continue;
+      const firstX = Math.min(...xs);
+      const lastX = Math.max(...xs);
       min = Math.min(min, 0);
-      max = Math.max(max, relXmax);
+      max = Math.max(max, lastX - firstX);
     }
     if (!isFinite(min) || !isFinite(max) || min === max) { min = 0; max = min + 1; }
     if (this._uniqViewKey !== seqs.length) {
@@ -70,21 +77,29 @@ export class ChartCard extends HTMLElement {
   }
 
   _sampleAndRender(seqs) {
+    // 适配新版：nodes 是 NodeList，必须 getItems，且没有顺序，需要排序
     const colors = makeColors(seqs.length || 1);
     this._seriesState = (seqs||[]).map((seq, i) => {
-      const nodes = seq.nodes || [];
-      const firstX = nodes.length > 0 ? nodes[0].x : 0;
-      let points = nodes.map(n => [n.x - firstX, n.y]);
+      if (!seq.nodes || seq.hidden || typeof seq.nodes.getItems !== 'function') return null;
+      let nodes = seq.nodes.getItems();
+      if (!Array.isArray(nodes) || !nodes.length) return null;
+      // 只取合法点
+      nodes = nodes.filter(n => isFinite(n.x) && isFinite(n.y));
+      // 按 x 升序排序
+      nodes = nodes.slice().sort((a, b) => a.x - b.x);
+      if (!nodes.length) return null;
+      // 以最小x为起点，相对x
+      const firstX = nodes[0].x;
+      const points = nodes.map(n => [n.x - firstX, n.y]);
+      // 视窗裁剪
       let inView = points.filter(pt => pt[0] >= this.viewMinX && pt[0] <= this.viewMaxX);
-      if (inView.length > this.sampleTarget) {
-        inView = largestTriangleThreeBuckets(inView, this.sampleTarget);
-      }
+      // 不降采样，直接全量
       return {
-        name: seq.name,
+        name: seq.label || seq.name,
         points: inView,
         color: colors[i],
       };
-    });
+    }).filter(Boolean);
     this._render();
   }
 
@@ -105,7 +120,7 @@ export class ChartCard extends HTMLElement {
     ctx.save();
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // plot area边距和区间
+    // 基本布局和坐标轴网格，与原版一致
     const W = this.canvas.width, H = this.canvas.height;
     const margin = { left: 70*dpr, right: 18*dpr, top: 32*dpr, bottom: 48*dpr };
     const plotW = W - margin.left - margin.right, plotH = H - margin.top - margin.bottom;
@@ -133,12 +148,6 @@ export class ChartCard extends HTMLElement {
       const v = maxY - t*(maxY-minY)/5;
       ctx.fillText(formatSI(v), margin.left-8*dpr, y);
     }
-    // 纵轴单位位置上移，不遮住标签
-    ctx.font = `${13*dpr}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = '#253';
-    ctx.fillText('内存值', margin.left, margin.top - 18*dpr);
 
     // X轴网格与标签（单位为相对秒）
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -146,7 +155,6 @@ export class ChartCard extends HTMLElement {
       const x = margin.left + (plotW * t / 7);
       ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, margin.top+plotH);
       ctx.strokeStyle = '#eef4fa'; ctx.lineWidth = 1*dpr; ctx.stroke();
-      // 相对us转s
       const v = minX + t*(maxX-minX)/7;
       ctx.fillStyle = '#445066'; ctx.fillText(formatSeconds(v/1e6), x, margin.top+plotH+5*dpr);
     }
