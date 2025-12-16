@@ -107,10 +107,13 @@ export class ChartCard extends HTMLElement {
     const root = this.shadowRoot.querySelector('.chart-card-root');
     if (!root) return;
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = Math.max(300, (root.clientWidth || 500) * dpr);
-    this.canvas.height = 360 * dpr;
-    this.canvas.style.width = (root.clientWidth || 500) + 'px';
-    this.canvas.style.height = '360px';
+    const rect = this.canvas.getBoundingClientRect();
+    const w = Math.max(300, Math.floor(rect.width * dpr));
+    const h = Math.max(150, Math.floor(rect.height * 2 * dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w; this.canvas.height = h;
+      this.canvas.style.width = rect.width + "px"; this.canvas.style.height = rect.height * 2 + "px";
+    }
     this._render();
   }
 
@@ -122,7 +125,7 @@ export class ChartCard extends HTMLElement {
 
     // 基本布局和坐标轴网格，与原版一致
     const W = this.canvas.width, H = this.canvas.height;
-    const margin = { left: 70*dpr, right: 18*dpr, top: 32*dpr, bottom: 48*dpr };
+    const margin = { left: 70*dpr, right: 70*dpr, top: 32*dpr, bottom: 48*dpr };
     const plotW = W - margin.left - margin.right, plotH = H - margin.top - margin.bottom;
     let minX = this.viewMinX, maxX = this.viewMaxX;
     let minY = Infinity, maxY = -Infinity;
