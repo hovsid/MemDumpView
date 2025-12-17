@@ -1,11 +1,19 @@
-// 通用 Item
+import { makeColorForLabel } from '../utils/lttb.js';
+
 export class BaseItem {
   constructor({ label = '', hidden = false, color = undefined, meta = undefined } = {}) {
     this.label = label;
     this.hidden = hidden;
-    this.color = color;
+    this._color = color;
     this.meta = meta;
     this._key = Math.random().toString(36).slice(2, 9);
+  }
+
+  get color() {
+    if (this._color === undefined && this.label != '') {
+      this._color = makeColorForLabel(this.label);
+    }
+    return this._color;
   }
 }
 
@@ -140,10 +148,6 @@ export class DataModel {
     this.sequenceList = new SequenceList();
     this._listeners = {};
     this.sequenceList.on('changed', list => this._emit('sequences:changed', list));
-  }
-
-  setSequences(seqArr) {
-    this.sequenceList.setItems(seqArr);
   }
 
   getSequences() {

@@ -89,14 +89,13 @@ export class ChartCard extends HTMLElement {
 
     // 序列曲线绘制
     const seqs = dataModel.getSequences() || [];
-    const colors = makeColors(seqs.length);
     let colorIndex = 0;
     for (const seq of seqs) {
       if (seq.hidden) continue;
       const nodes = seq.nodes.getItems();
       if (!nodes.length) continue;
       // 只在视窗区间内点
-      ctx.strokeStyle = seq.color || colors[colorIndex];
+      ctx.strokeStyle = seq.color;
       ctx.beginPath();
       let start = true
       nodes.forEach(n => {

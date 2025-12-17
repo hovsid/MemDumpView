@@ -44,3 +44,17 @@ export function makeColors(n) {
   for (let i = 0; i < n; i++) { const hue = Math.round((360 / Math.max(1, n)) * i); colors.push(`hsl(${hue} 70% 45%)`); }
   return colors;
 }
+
+// 新增：全局唯一、label稳定的颜色分配（HSL调色环hash）
+export function makeColorForLabel(label) {
+  let str = label == null ? '' : String(label);
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i); // hash * 33 + c
+    hash = hash & 0xffffffff;
+  }
+  const hue = Math.abs(hash) % 360;
+  const sat = 68 + (Math.abs(hash) % 12); // 68-79%
+  const lum = 44 + (Math.abs(hash) % 11); // 44-54%
+  return `hsl(${hue} ${sat}% ${lum}%)`;
+}
