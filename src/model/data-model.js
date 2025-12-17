@@ -1,8 +1,9 @@
 // 通用 Item
 export class BaseItem {
-  constructor({ label = '', hidden = false, meta = undefined } = {}) {
+  constructor({ label = '', hidden = false, color = undefined, meta = undefined } = {}) {
     this.label = label;
     this.hidden = hidden;
+    this.color = color;
     this.meta = meta;
     this._key = Math.random().toString(36).slice(2, 9);
   }
@@ -40,12 +41,66 @@ export class NodeItem extends BaseItem {
   }
 }
 
+export class NodeRange {
+  constructor({ xmin = Infinity, ymin = Infinity, xmax = 0, ymax = 0 } = {}) {
+    this.xmin = xmin;
+    this.ymin = ymin;
+    this.xmax = xmax;
+    this.ymax = ymax;
+  }
+
+  initFromNode(node) {
+    this.xmin = node.x;
+    this.xmax = node.x;
+    this.ymin = node.y;
+    this.ymax = node.y;
+  }
+
+  upDateRange(node) {
+    this.xmin = Math.min(this.xmin, node.x);
+    this.xmax = Math.max(this.xmax, node.x);
+    this.ymin = Math.min(this.ymin, node.y);
+    this.ymax = Math.max(this.ymax, node.y);
+  }
+
+  merge(range) {
+    this.xmin = Math.min(this.xmin, range.xmin)
+    this.xmax = Math.max(this.xmax, range.xmax)
+    this.ymin = Math.min(this.ymin, range.ymin)
+    this.ymax = Math.max(this.ymax, range.ymax)
+  }
+
+  enlarge(rate) {
+    this.xmax += (this.xmax - this.xmin) * rate;
+    this.ymax += (this.ymax - this.ymin) * rate;
+  }
+
+  equals(range) {
+    return this.xmin === range.xmin && this.xmax === range.xmax &&
+           this.ymin === range.ymin && this.ymax === range.ymax;
+  }
+
+  inRange(node) {
+    return node.x >= this.xmin && node.x <= this.xmax &&
+           node.y >= this.ymin && node.y <= this.ymax;
+  }
+}
+
 // 节点列表
 export class NodeList extends BaseList {
   constructor(nodes = []) {
-    super(nodes.map(n =>
-      n instanceof NodeItem ? n : new NodeItem(n)
-    ));
+    // 1. 过滤非法 2. NodeItem化 3. 排序
+    let range = new NodeRange();
+    const sortedNodes = (nodes)
+      .filter(n => n != null && isFinite(Number(n.x)) && isFinite(Number(n.y)))
+      .map(n => {
+        range.upDateRange(n);
+        return n instanceof NodeItem ? n : new NodeItem(n)
+      })
+      .sort((a, b) => a.x - b.x);
+    super(sortedNodes);
+    this.range = range;
+    console.log('NodeList created with range:', this.range);
   }
 }
 
@@ -53,7 +108,7 @@ export class NodeList extends BaseList {
 export class SequenceItem extends BaseItem {
   constructor({ nodes = [], ...rest } = {}) {
     super(rest);
-    // 这里 nodes 是 NodeList 而不是普通数组
+    // nodes 是 NodeList，不是普通数组
     this.nodes = nodes instanceof NodeList ? nodes : new NodeList(nodes);
   }
 }
@@ -61,9 +116,21 @@ export class SequenceItem extends BaseItem {
 // 序列列表
 export class SequenceList extends BaseList {
   constructor(sequences = []) {
-    super(sequences.map(seq =>
-      seq instanceof SequenceItem ? seq : new SequenceItem(seq)
-    ));
+    let range = new NodeRange();
+    super(sequences.map(seq => {
+      let item = seq instanceof SequenceItem ? seq : new SequenceItem(seq)
+      range.merge(item.nodes.range);
+      return item
+    }));
+    this.range = range;
+  }
+
+  pushSequence(seq) {
+    const item = seq instanceof SequenceItem ? seq : new SequenceItem(seq);
+    this.range.merge(item.nodes.range);
+    console.log('SequenceList range updated from:', item.nodes.range);
+    console.log('SequenceList range updated to:', this.range);
+    this.add(item);
   }
 }
 
@@ -84,7 +151,7 @@ export class DataModel {
   }
 
   addSequence(seq) {
-    this.sequenceList.add(seq);
+    this.sequenceList.pushSequence(seq);
   }
 
   clearSequences() {
