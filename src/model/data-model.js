@@ -1,4 +1,4 @@
-import { makeColorForLabel } from '../utils/lttb.js';
+import { makeColorForLabel, largestTriangleThreeBuckets } from '../utils/lttb.js';
 
 export class BaseItem {
   constructor({ label = '', hidden = false, color = undefined, meta = undefined } = {}) {
@@ -71,6 +71,15 @@ export class NodeRange {
     this.ymax = Math.max(this.ymax, node.y);
   }
 
+  normalize() {
+    return new NodeRange({
+      xmin: 0,
+      xmax: this.xmax - this.xmin,
+      ymin: this.ymin,
+      ymax: this.ymax,
+    });
+  }
+
   merge(range) {
     this.xmin = Math.min(this.xmin, range.xmin)
     this.xmax = Math.max(this.xmax, range.xmax)
@@ -80,7 +89,7 @@ export class NodeRange {
 
   enlarge(rate) {
     this.xmax += (this.xmax - this.xmin) * rate;
-    this.ymax += (this.ymax - this.ymin) * rate;
+    this.ymax += this.ymax * rate;
   }
 
   equals(range) {
@@ -88,9 +97,14 @@ export class NodeRange {
            this.ymin === range.ymin && this.ymax === range.ymax;
   }
 
-  inRange(node) {
+  inNodeRange(node) {
     return node.x >= this.xmin && node.x <= this.xmax &&
            node.y >= this.ymin && node.y <= this.ymax;
+  }
+
+  inRange(x, y) {
+    return x >= this.xmin && x <= this.xmax &&
+           y >= this.ymin && y <= this.ymax;
   }
 }
 
@@ -108,16 +122,37 @@ export class NodeList extends BaseList {
       .sort((a, b) => a.x - b.x);
     super(sortedNodes);
     this.range = range;
-    console.log('NodeList created with range:', this.range);
   }
 }
 
 // 序列（每一个节点数组由 NodeList 管理）
 export class SequenceItem extends BaseItem {
+  static defaultSampleTarget = 3000;
   constructor({ nodes = [], ...rest } = {}) {
     super(rest);
     // nodes 是 NodeList，不是普通数组
     this.nodes = nodes instanceof NodeList ? nodes : new NodeList(nodes);
+    this.sampled = this.resample(SequenceItem.defaultSampleTarget);
+  }
+
+  resample(targetCount) {
+    if (this.nodes.getItems().length <= targetCount) {
+      return this.nodes;
+    }
+    const nodes = this.nodes.getItems();
+    // LTTB输入为二维数组，这里需转换
+    const lttbInput = nodes.map(n => [n.x, n.y]);
+    const lttbRes = largestTriangleThreeBuckets(lttbInput, targetCount);
+    // 结果转 NodeItem，且保留排序
+    // 为了顺序与原采样点一致，这里用x/y查找原 NodeItem
+    const sampledNodes = [];
+    for(const [x, y] of lttbRes) {
+      // 优选精确匹配原对象，否则新建
+      let found = nodes.find(n => n.x === x && n.y === y);
+      if (!found) found = new NodeItem({ x, y });
+      sampledNodes.push(found);
+    }
+    return new NodeList(sampledNodes);
   }
 }
 
@@ -127,17 +162,16 @@ export class SequenceList extends BaseList {
     let range = new NodeRange();
     super(sequences.map(seq => {
       let item = seq instanceof SequenceItem ? seq : new SequenceItem(seq)
-      range.merge(item.nodes.range);
+      range.merge(item.nodes.range.normalize());
       return item
     }));
+    // this.normalizedRange = range;
     this.range = range;
   }
 
   pushSequence(seq) {
     const item = seq instanceof SequenceItem ? seq : new SequenceItem(seq);
-    this.range.merge(item.nodes.range);
-    console.log('SequenceList range updated from:', item.nodes.range);
-    console.log('SequenceList range updated to:', this.range);
+    this.range.merge(item.nodes.range.normalize());
     this.add(item);
   }
 }
