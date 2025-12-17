@@ -11,6 +11,7 @@ export class ItemRow extends HTMLElement {
     this.$checkbox = this.shadowRoot.querySelector('.item-checkbox');
     this.$label = this.shadowRoot.querySelector('.item-label');
     this.$menuBtn = this.shadowRoot.querySelector('.menu-btn');
+    this.$swatch = this.shadowRoot.querySelector('.color-swatch');
     this._menuConfig = [];
     this._item = null;
     this._checked = false;
@@ -59,6 +60,10 @@ export class ItemRow extends HTMLElement {
     if (!this._item) return;
     this.$label.textContent = this._item.label || '未命名';
     if (this.$row) this.$row.style.opacity = this._item.hidden ? '0.45' : '1';
+    if (this.$swatch) {
+      this.$swatch.style.background = this._item.color || '#bcd';
+      this.$swatch.title = this._item.color || '';
+    }
   }
 
   _showMenu() {
