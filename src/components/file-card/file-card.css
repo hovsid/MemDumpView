@@ -4,6 +4,7 @@
   gap: 14px;
   padding: 2px 0;
 }
+
 .fc-header {
   display: flex;
   flex-direction: row;
@@ -12,48 +13,87 @@
   gap: 10px;
   margin-bottom: 6px;
 }
+
 .fc-title {
   font-weight: bold;
   font-size: 16px;
   color: var(--text, #222);
 }
+
 .fc-file-list {
   display: flex;
   flex-direction: column;
   gap: 9px;
 }
+
 .fc-btn-row {
   display: flex;
   align-items: center;
-  gap:7px;
-  border-radius:8px;
-  background: none; border:none;
+  gap: 7px;
+  border-radius: 8px;
+  background: none;
+  border: none;
   padding: 6px 5px 6px 0;
-  position:relative;
+  position: relative;
   min-height: 36px;
 }
-.fc-btn-row.selected { background: var(--card-hover, #f3f8ff); }
+
+.fc-btn-row.selected {
+  background: var(--card-hover, #f3f8ff);
+}
+
 .fc-filename {
-  flex:1; min-width:0;
-  overflow:hidden; text-overflow:ellipsis;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 15px;
 }
-.fc-menu-btn {
-  background: none; border: none; min-width: 32px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 6px; cursor: pointer;
-}
-.fc-menu-btn:hover { background: #f3f8ff; }
-.fc-checkbox { margin:0 6px 0 3px; width:18px; height:18px; }
-.fc-menu-popup {
-  position: fixed; z-index: 2222; background: #fff;
-  box-shadow: 0 6px 20px rgba(50,80,120,0.15);
-  border: 1px solid var(--card-border, #e6eef9);
-  border-radius: 9px; padding: 6px 0; min-width: 120px;
-}
-.fc-menu-popup button {
-  display: block; width: 100%; background: none; border: none; padding:10px 18px; text-align:left;
-  font-size:14px; cursor:pointer; border-radius:7px;
-}
-.fc-menu-popup button:hover { background: #f3f8ff; }
 
+.fc-menu-btn {
+  background: none;
+  border: none;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.fc-menu-btn:hover {
+  background: #f3f8ff;
+}
+
+.fc-checkbox {
+  margin: 0 6px 0 3px;
+  width: 18px;
+  height: 18px;
+}
+
+.fc-menu-popup {
+  position: fixed;
+  z-index: 2222;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(50, 80, 120, 0.15);
+  border: 1px solid var(--card-border, #e6eef9);
+  border-radius: 9px;
+  padding: 6px 0;
+  min-width: 120px;
+}
+
+.fc-menu-popup button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 10px 18px;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 7px;
+}
+
+.fc-menu-popup button:hover {
+  background: #f3f8ff;
+}

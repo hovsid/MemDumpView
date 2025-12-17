@@ -104,15 +104,14 @@ export class ChartCard extends HTMLElement {
   }
 
   _resizeCanvas() {
-    const root = this.shadowRoot.querySelector('.chart-card-root');
+    const root = this.shadowRoot.querySelector('.chart-content');
     if (!root) return;
     const dpr = window.devicePixelRatio || 1;
-    const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(300, Math.floor(rect.width * dpr));
-    const h = Math.max(150, Math.floor(rect.height * 2 * dpr));
+    const w = Math.max(300, Math.floor(root.clientWidth * dpr));
+    const h = Math.max(150, Math.floor(root.clientHeight * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w; this.canvas.height = h;
-      this.canvas.style.width = rect.width + "px"; this.canvas.style.height = rect.height * 2 + "px";
+      this.canvas.style.width = root.clientWidth + "px"; this.canvas.style.height = root.clientHeight + "px";
     }
     this._render();
   }

@@ -20,7 +20,6 @@ export class BaseCard extends HTMLElement {
     }
   }
   connectedCallback() {
-    // set title on create
     this.attributeChangedCallback('title', null, this.getAttribute('title'));
   }
 }
