@@ -17,7 +17,7 @@ export class ItemList extends HTMLElement {
     if (this._list === listObj) return;
     this._list = listObj;
     if (this._list && this._list.on) {
-      this._list.on('changed', () => this.renderList());
+      this._list.on('changed', (e) => this.renderList());
     }
     this.renderList();
   }
@@ -52,13 +52,13 @@ export class ItemList extends HTMLElement {
       });
       row.addEventListener('item-toggle', e => {
         // 默认已写入item; 这里 emit changed 以保证外部/图表响应
-        this._list._emit && this._list._emit('changed', this._list.getItems());
+        this._list._emit && this._list._emit('changed', e);
         this.renderList();
       });
       // 重命名
       row.addEventListener('item-renamed', e => {
         // 默认已写入item; 这里 emit changed 以保证外部/图表响应
-        this._list._emit && this._list._emit('changed', this._list.getItems());
+        this._list._emit && this._list._emit('changed', e);
         this.renderList();
       });
       // 选中 toggle

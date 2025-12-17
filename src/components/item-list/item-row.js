@@ -48,7 +48,6 @@ export class ItemRow extends HTMLElement {
       if (ev.target.closest('.menu-btn') || ev.target.classList.contains('item-checkbox')) return;
       if (this._item) {
         this._item.hidden = !this._item.hidden;
-        console.log('item hidden toggled:', JSON.stringify(this._item));
         // 通知外层刷新（由 list 监听 changed 事件触发）
         this.dispatchEvent(new CustomEvent('item-toggle', { detail: { item: this._item }, bubbles: true, composed: true }));
         this._update();
