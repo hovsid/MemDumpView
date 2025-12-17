@@ -17,6 +17,7 @@ export class ChartCard extends HTMLElement {
     this.viewMinX = 0;
     this.viewMaxX = 1;
     this._uniqViewKey = -1;
+    this._lastHitNode = null;
     this._bindEvents();
   }
 
@@ -24,7 +25,23 @@ export class ChartCard extends HTMLElement {
     this._resizeCanvas();
     window.addEventListener('resize', () => this._resizeCanvas());
     dataModel.on('sequences:changed', () => this._onDataChanged());
-    // this.shadowRoot.getElementById('resetViewBtn').onclick = () => this._resetView();
+    // 初始隐藏 tooltip
+    if (this.tooltip) {
+      this.tooltip.style.display = 'none';
+      this.tooltip.style.position = 'fixed';
+      this.tooltip.style.pointerEvents = 'none';
+      this.tooltip.style.zIndex = 10000;
+      this.tooltip.style.background = '#fff';
+      this.tooltip.style.boxShadow = '0 4px 14px rgba(30,30,60,0.20)';
+      this.tooltip.style.borderRadius = '8px';
+      this.tooltip.style.fontSize = '13px';
+      this.tooltip.style.color = '#222';
+      this.tooltip.style.padding = '10px 16px';
+      this.tooltip.style.minWidth = '160px';
+      this.tooltip.style.maxWidth = '320px';
+      this.tooltip.style.wordBreak = 'break-all';
+      this.tooltip.style.border = '1px solid #e6eef9';
+    }
   }
 
   _onDataChanged() {
@@ -87,7 +104,8 @@ export class ChartCard extends HTMLElement {
       ctx.fillStyle = '#445066'; ctx.fillText(formatSeconds(v / 1e6), x, margin.top + plotH + 5 * dpr);
     }
 
-    // 序列曲线绘制
+    // 绘制曲线和点的可视属性缓存（用于命中检测）
+    this._drawnPoints = []; // [{x, y, seqIndex, nodeIndex, px, py, nodeObj, seriesLabel, color}]
     const seqs = dataModel.getSequences() || [];
     let colorIndex = 0;
     for (const seq of seqs) {
@@ -98,9 +116,14 @@ export class ChartCard extends HTMLElement {
       ctx.strokeStyle = seq.color;
       ctx.beginPath();
       let start = true
-      nodes.forEach(n => {
+      nodes.forEach((n, idx) => {
         if (!this.range.inRange(n)) return;
         const px = xToPx(n.x), py = yToPx(n.y);
+        // 缓存点的像素和数据
+        this._drawnPoints.push({
+          x: n.x, y: n.y, seqIndex: colorIndex, nodeIndex: idx,
+          px, py, nodeObj: n, seriesLabel: seq.label, color: seq.color, raw: n
+        });
         if (start) {
           ctx.moveTo(px, py);
           start = false;
@@ -116,11 +139,84 @@ export class ChartCard extends HTMLElement {
   }
 
   _bindEvents() {
-    this.canvas.addEventListener('wheel', ev => {}, { passive: false });
+    this.canvas.addEventListener('mousemove', ev => this._onMouseMove(ev));
+    this.canvas.addEventListener('mouseleave', () => this._onMouseLeave());
     this.canvas.addEventListener('keydown', ev => this._onKey(ev));
   }
 
+  _onMouseMove(ev) {
+    if (!this._drawnPoints || !this._drawnPoints.length) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * (window.devicePixelRatio || 1);
+    const y = (ev.clientY - rect.top) * (window.devicePixelRatio || 1);
+
+    // 命中检测：找最近的点，限制最远距离
+    let minDist = Infinity, closest = null;
+    for (const pt of this._drawnPoints) {
+      const d2 = (pt.px - x) ** 2 + (pt.py - y) ** 2;
+      if (d2 < minDist) {
+        minDist = d2;
+        closest = pt;
+      }
+    }
+    console.log("minDist:", Math.sqrt(minDist), closest);
+    const maxDist = 12 * (window.devicePixelRatio || 1);
+    if (closest && Math.sqrt(minDist) < maxDist) {
+      if (this._lastHitNode !== closest) {
+        this._lastHitNode = closest;
+        this._showTooltip(ev.clientX, ev.clientY, closest);
+      }
+    } else {
+      this._lastHitNode = null;
+      this._hideTooltip();
+    }
+  }
+
+  _onMouseLeave() {
+    this._lastHitNode = null;
+    this._hideTooltip();
+  }
+
+  _hideTooltip() {
+    if (this.tooltip) {
+      this.tooltip.style.display = 'none';
+      this.tooltip.innerHTML = '';
+    }
+  }
+
+  _showTooltip(clientX, clientY, pt) {
+    console.log("show tooltip called:", clientX, clientY, pt);
+    if (!this.tooltip || !pt) return;
+    console.log("show tooltip for:", pt);
+    // 格式化 NodeItem 属性
+    const node = pt.nodeObj;
+    let content = `<strong>序列名：</strong>${pt.seriesLabel ?? ''}<br>`;
+    Object.entries(node).forEach(([k, v]) => {
+      if (k.startsWith('_')) return;
+      if (typeof v === 'function') return;
+      let val = v;
+      if (typeof v === 'number' && /x|micro/i.test(k)) {
+        val = `${v}（${formatSeconds(v/1e6)}）`;
+      }
+      content += `<strong>${k}：</strong>${val}<br>`;
+    });
+    this.tooltip.innerHTML = content;
+
+    // 定位
+    const pad = 16;
+    this.tooltip.style.display = 'block';
+    let left = clientX + pad, top = clientY + pad;
+    // 保证不会超出窗口
+    const w = this.tooltip.offsetWidth, h = this.tooltip.offsetHeight;
+    const winW = window.innerWidth, winH = window.innerHeight;
+    if (left + w > winW - 12) left = clientX - w - pad;
+    if (top + h > winH - 12) top = clientY - h - pad;
+    this.tooltip.style.left = left + 'px';
+    this.tooltip.style.top = top + 'px';
+  }
+
   _onKey(ev) {
+    // todo: 可添加键盘交互
   }
 }
 customElements.define('chart-card', ChartCard);
