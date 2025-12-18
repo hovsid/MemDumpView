@@ -13,14 +13,14 @@ export function largestTriangleThreeBuckets(data, threshold) {
     let avgX = 0, avgY = 0;
     let avgRangeLength = avgRangeEndClamped - avgRangeStart;
     if (avgRangeLength <= 0) avgRangeLength = 1;
-    for (let j = avgRangeStart; j < avgRangeEndClamped; j++) { avgX += data[j][0]; avgY += data[j][1]; }
+    for (let j = avgRangeStart; j < avgRangeEndClamped; j++) { avgX += data[j].x; avgY += data[j].y; }
     avgX /= avgRangeLength; avgY /= avgRangeLength;
     const rangeOffs = Math.floor(i * every) + 1;
     const rangeTo = Math.floor((i + 1) * every) + 1;
-    const pointAx = data[a][0], pointAy = data[a][1];
+    const pointAx = data[a].x, pointAy = data[a].y;
     let maxArea = -1, nextA = rangeOffs;
     for (let j = rangeOffs; j < rangeTo + 1 && j < dataLength; j++) {
-      const area = Math.abs((pointAx - avgX) * (data[j][1] - pointAy) - (pointAx - data[j][0]) * (avgY - pointAy)) * 0.5;
+      const area = Math.abs((pointAx - avgX) * (data[j].y - pointAy) - (pointAx - data[j].x) * (avgY - pointAy)) * 0.5;
       if (area > maxArea) { maxArea = area; nextA = j; }
     }
     sampled[i + 1] = data[nextA]; a = nextA;

@@ -11,11 +11,6 @@ export class ChartCanvas extends HTMLElement {
     this.canvas = this.shadowRoot.querySelector('canvas');
     this.range = new NodeRange({ xmin: 0, xmax: 1, ymin: 0, ymax: 1 });
     this._drawnPoints = [];
-    // 事件绑定
-    // this._onMove = this._onMove.bind(this);
-    // this._onLeave = this._onLeave.bind(this);
-    // this._render = this._render.bind(this);
-    // this._resize = this._resize.bind(this);
   }
   connectedCallback() {
     dataModel.on('sequences:changed', () => this._onDataChanged());
@@ -36,7 +31,6 @@ export class ChartCanvas extends HTMLElement {
   _resetViewRange() {
     if (!dataModel.sequenceList) return;
     if (dataModel.getSequences().length === 0) return;
-    if (this.range.equals(dataModel.sequenceList.range)) return;
     this.range = dataModel.sequenceList.range;
     this.range.enlarge(0.1);
   }
@@ -51,6 +45,7 @@ export class ChartCanvas extends HTMLElement {
     this._render();
   }
   _render() {
+    console.log('ChartCanvas: rendering', Date.now());
     const ctx = this.canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     ctx.save();
@@ -101,8 +96,9 @@ export class ChartCanvas extends HTMLElement {
       ctx.beginPath();
       let started = false;
       nodes.forEach((n, idx) => {
-        if (!this.range.inRange(n.x - seq.nodes.range.xmin, n.y)) return;
-        const px = xToPx(n.x - seq.nodes.range.xmin), py = yToPx(n.y);
+        const offsetX = n.x - seq.sampled.range.xmin;
+        if (!this.range.inRange(offsetX, n.y)) return;
+        const px = xToPx(offsetX), py = yToPx(n.y);
         this._drawnPoints.push({
           node: n, seq, px, py
         });
@@ -114,6 +110,8 @@ export class ChartCanvas extends HTMLElement {
     }
 
     ctx.restore();
+
+    console.log('ChartCanvas: rendering done', Date.now());
   }
 
   _onMove(ev) {
