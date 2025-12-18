@@ -48,8 +48,7 @@ export class FileCard extends HTMLElement {
         label: '导出为 JSON',
         callback: (seq) => {
           // 此回调在 item-row 中被触发
-          const out = { label: seq.label, nodes: seq.nodes ? seq.nodes.slice() : [] };
-          const blob = new Blob([JSON.stringify({ sequences: [out] }, null, 2)], { type: 'application/json' });
+          const blob = new Blob([JSON.stringify(seq, null, 2)], { type: 'application/json' });
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
           a.download = (seq.label || '序列') + '.json';

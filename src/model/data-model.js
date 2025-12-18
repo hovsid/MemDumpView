@@ -141,24 +141,34 @@ export class NodeList extends BaseList {
 // 序列（每一个节点数组由 NodeList 管理）
 export class SequenceItem extends BaseItem {
   static defaultSampleTarget = 3000;
-  constructor({ nodes = [], ...rest } = {}) {
+  constructor({ nodes = [], sampled = undefined, ...rest } = {}) {
     super(rest);
-    this.initNodeList(nodes);
+    this.initNodeList(nodes, sampled);
   }
 
-  initNodeList(nodes) {
+  initNodeList(nodes, sampled = undefined) {
     this.nodes = nodes;
-    this.resample(SequenceItem.defaultSampleTarget);
+    if (sampled !== undefined) {
+      this.sampled = new NodeList(sampled._items);
+      this.reportUpdated("already sampled");
+    } else {
+      this.resampleAsync(SequenceItem.defaultSampleTarget).then(() => {
+        this.reportUpdated("resampled");
+      });
+    }
   }
 
-  async resample(targetCount) {
+  async resampleAsync(targetCount) {
     const labelNodes = this.nodes.filter(node => node.label !== undefined);
     const noLabelNodes = this.nodes.filter(node => node.label === undefined);
     const sampledNodes = noLabelNodes.length > targetCount ?
       largestTriangleThreeBuckets(noLabelNodes, targetCount) :
       noLabelNodes;
     this.sampled = new NodeList(sampledNodes.concat(labelNodes));
-    this._emit('changed', 'resampled');
+  }
+
+  reportUpdated(data) {
+    this._emit('changed', data);
     this.sampled.on('changed', (e) => this._emit('changed', e));
   }
 }
@@ -166,10 +176,8 @@ export class SequenceItem extends BaseItem {
 // 序列列表
 export class SequenceList extends BaseList {
   constructor(sequences = []) {
-    let range = new NodeRange();
     super(sequences.map(seq => seq instanceof SequenceItem ? seq : new SequenceItem(seq)));
-    // this.normalizedRange = range;
-    this.range = range;
+    this.range = new NodeRange();
     this.on('changed', () => {
       this.updatedRange()
     });
