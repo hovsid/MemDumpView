@@ -45,7 +45,6 @@ export class ChartCanvas extends HTMLElement {
     this._render();
   }
   _render() {
-    console.log('ChartCanvas: rendering', Date.now());
     const ctx = this.canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     ctx.save();
@@ -110,8 +109,6 @@ export class ChartCanvas extends HTMLElement {
     }
 
     ctx.restore();
-
-    console.log('ChartCanvas: rendering done', Date.now());
   }
 
   _onMove(ev) {

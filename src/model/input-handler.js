@@ -21,11 +21,8 @@ class InputHandler {
     const ext = (file.name || '').split('.').pop().toLowerCase();
     let sequences = [];
     try {
-      console.log(`正在读取 ${file.name}`, true, Date.now());
       const text = await file.text(); // 若需更彻底流式可改为分段读取
-      console.log(`读取完成 ${file.name}`, true, Date.now());
       if (ext === 'json') {
-        // ...（略，参考原逻辑）...
         let parsed;
         try {
           parsed = JSON.parse(text);
@@ -38,7 +35,6 @@ class InputHandler {
           throw new Error('JSON 内容格式无效');
         }
       } else if (ext === 'txt') {
-        console.log(`开始解析 ${file.name}`, true, Date.now());
         const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const sequence = { label: seq.label, nodes: [] };
         for(const line of lines) {
@@ -56,7 +52,6 @@ class InputHandler {
           sequence.nodes.push(node);
         }
         sequences = [sequence];
-        console.log(`解析完成 ${file.name}`, true, Date.now());
       } else {
         throw new Error('仅支持txt或json格式输入');
       }
@@ -64,9 +59,7 @@ class InputHandler {
       if (sequences.length) {
         // 【只取单序列】如果多序列可以特殊处理
         const fill = sequences[0];
-        console.log(`开始更新数据 ${file.name}`, true, Date.now());
         seq.initNodeList(fill.nodes);
-        console.log(`完成更新数据 ${file.name}`, true, Date.now());
         dataModel._emit('sequences:changed', dataModel.getSequences());
       }
       seq.loading = false;
